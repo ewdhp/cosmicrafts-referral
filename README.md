@@ -1,0 +1,2 @@
+## Deploy Token
+dfx deploy icrc1 --argument '( record { name = "Spiral"; symbol = "SPR"; decimals = 0; fee = 1; max_supply = 1_000_000_000_000_000; initial_balances = vec { record { record { owner = principal "bkyz2-fmaaa-aaaaa-qaaaq-cai"; subaccount = null; }; 100_000_000_000 } }; min_burn_amount = 1; minting_account = opt record { owner = principal "bkyz2-fmaaa-aaaaa-qaaaq-cai"; subaccount = null; }; advanced_settings = null; })'

@@ -1,0 +1,30 @@
+{
+  "canisters": {
+    "ref_backend": {
+      "main": "src/ref_backend/main.mo",
+      "type": "motoko"
+    },
+    "icrc1": {
+      "main": "src/icrc1/Canisters/Token.mo",
+      "type": "motoko"
+    },
+    "ref_frontend": {
+      "dependencies": [
+        "ref_backend"
+      ],
+      "source": [
+        "src/ref_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "ref_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
