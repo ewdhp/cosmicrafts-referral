@@ -25,7 +25,7 @@ actor {
   type UUID = Text;
   type TierID = Nat;
   type Multiplier = Float;
-  type Networth = Float;
+  type Networth = Nat;
 
   type F = () -> Bool;
   private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
@@ -57,18 +57,18 @@ actor {
     tierTokenSum : Nat;
     signupTokenSum : Nat;
     tokenTotal : Nat;
-    multiplier : Float;
-    netWorth : Float;
+    multiplier : Multiplier;
+    netWorth : Networth;
     topPlayers : [TopPLayersView];
     topPosition : Nat;
-    topTokenAmount : Nat;
+    topTokenAmount : (Nat, Text);
     singupLink : Text;
   };
   type TopPLayersView = {
     playerName : Text;
     tokenCount : Int;
-    multiplier : Float;
-    netWorth : Float;
+    multiplier : Multiplier;
+    netWorth : Networth;
   };
   private stable var _tiers : [Tier] = [];
   private var tiers : Buffer.Buffer<Tier> = Buffer.fromArray<Tier>(_tiers);
@@ -191,7 +191,7 @@ actor {
       };
     };
     let (multiplier, networth) = await getTokenomics(account);
-    let (_, position) = await getPlayerTopPosition(id);
+    let (amount, text) = await getTopWeeklyTokenAmount(id);
     let currentTier = switch (await getCurrentPlayerTier(id)) {
       case null { return null };
       case (?tier) tier;
@@ -206,14 +206,14 @@ actor {
       multiplier = multiplier;
       netWorth = networth;
       topPlayers = await getTopPlayers(0);
-      topPosition = position;
+      topPosition = await getPlayerTopPosition(id);
       topTokenAmount = await getTopWeeklyTokenAmount(id);
       singupLink = await signupLinkShare(id);
     };
     ?r;
   };
 
-  private func getPlayerTopPosition(id : Principal) : async (Bool, Nat) {
+  private func getPlayerTopPosition(id : Principal) : async Nat {
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
     var playersWithTokenSums : [(Principal, Nat)] = [];
     for (i in Iter.range(0, playersArray.size() - 1)) {
@@ -240,11 +240,11 @@ actor {
     var position : Nat = 0;
     for ((principal, _) in sortedPlayers.vals()) {
       if (principal == id) {
-        return (true, position);
+        return position;
       };
       position += 1;
     };
-    return (false, 0);
+    return 0;
   };
 
   private func isMonday(timestamp : Time.Time) : Bool {
@@ -256,7 +256,7 @@ actor {
 
   public func claimTopWeeklyToken(id : Principal) : async (Bool, Text) {
     if (isMonday(Time.now())) {
-      let tokenAmount = await getTopWeeklyTokenAmount(id);
+      let (tokenAmount, _) = await getTopWeeklyTokenAmount(id);
       if (tokenAmount > 0) {
         let (minted, result) = await mintTokensStandalone(id, tokenAmount);
         if (minted) {
@@ -295,33 +295,38 @@ actor {
     };
   };
 
-  private func getTopWeeklyTokenAmount(id : Principal) : async Nat {
+  private func getTopWeeklyTokenAmount(id : Principal) : async (Nat, Text) {
     let topPlayers = await getTopPlayers(0);
     switch (accounts.get(id)) {
       case (null) {
-        return 0;
+        return (0, "Account not found");
       };
       case (?account) {
         for (player in topPlayers.vals()) {
           if (player.playerName == account.alias) {
             for (token in account.tokens.vals()) {
               if (token.title == "Weekly Top Player Token") {
-                return token.amount;
+                return (token.amount, "Tokens claimed");
               };
             };
-            return 0;
+            return (25, "You are in, waiting for monday.");
           };
         };
-        return 0;
+        return (0, "Not clasified");
       };
     };
   };
 
   private func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
-    let sum : Nat64 = Nat64.fromNat(await getTotalTokenSum(account));
-    let intSum : Int64 = Int64.fromNat64(sum);
-    let floatSum : Float = Float.fromInt64(intSum);
-    (1.0 * floatSum * 0.1, 1.0 * (1.0 * floatSum * 0.1));
+    let networth = await getTotalTokenSum(account);
+    let multiplier : Float = if (networth <= 5) {
+      1.10;
+    } else if (networth <= 20) {
+      1.20;
+    } else {
+      1.30;
+    };
+    return (multiplier, networth);
   };
 
   private func getTotalTokenSum(account : RefAccount) : async Nat {
