@@ -34,7 +34,7 @@ actor {
     playerID : Principal;
     refByUUID : UUID;
     uuid : UUID;
-    alias : Text;
+    alias : Text; //not implemented
     tiers : [Tier];
     tokens : [Token];
   };
@@ -116,14 +116,16 @@ actor {
     title = "Referral Signup token";
     amount = 5;
   };
-  let signupTier : Tier = {
+
+  let missionTier : Tier = {
     id = 0;
-    title = "Tier 1 signup";
-    desc = "Signup and recieve 10 tokens for free";
+    title = "Tier 1 Mission";
+    desc = "Complete mission 1 and get 10 tokens free";
     status = "Progress";
-    token = { title = "Tier 1 signup token"; amount = 5 };
+    token = { title = "Tier 1 mission token"; amount = 10 };
   };
-  tiers.add(signupTier);
+  tiers.add(missionTier);
+
   let discordTier : Tier = {
     id = 1;
     title = "Tier 2 Discord";
@@ -132,6 +134,7 @@ actor {
     token = { title = "Tier 2 Discord token"; amount = 10 };
   };
   tiers.add(discordTier);
+
   let tweeterTier : Tier = {
     id = 2;
     title = "Tier 3 Tweeter";
@@ -141,7 +144,7 @@ actor {
   };
   tiers.add(tweeterTier);
 
-  private func validateSignupTier() : Bool {
+  private func validateMissionTier() : Bool {
     return true;
   };
   private func validateDiscordTier() : Bool {
@@ -150,7 +153,7 @@ actor {
   private func validateTweeterTier() : Bool {
     return true;
   };
-  validateFunc.add(validateSignupTier);
+  validateFunc.add(validateMissionTier);
   validateFunc.add(validateDiscordTier);
   validateFunc.add(validateTweeterTier);
 
@@ -158,7 +161,7 @@ actor {
     return Buffer.toArray(tiers);
   };
 
-  public query func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
+  private func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
     let player = accounts.get(playerId);
     switch (player) {
       case (null) {
@@ -200,12 +203,12 @@ actor {
       topPlayers = await getTopPlayers(0);
       topPosition = await getPlayerTopPosition(id);
       topTokenAmount = await getTopWeeklyTokenAmount(id);
-      singupLink = await signupLinkShare();
+      singupLink = await signupLinkShare(id);
     };
     ?r;
   };
 
-  public func getPlayerTopPosition(id : Principal) : async Nat {
+  private func getPlayerTopPosition(id : Principal) : async Nat {
     0; //not implemented
   };
 
@@ -213,22 +216,22 @@ actor {
     (false, "not implemented");
   };
 
-  public query func getTopWeeklyTokenAmount(id : Principal) : async Nat {
+  private func getTopWeeklyTokenAmount(id : Principal) : async Nat {
     0; //not implemented
   };
 
-  public func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
+  private func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
     let sum : Nat64 = Nat64.fromNat(await getTotalTokenSum(account));
     let intSum : Int64 = Int64.fromNat64(sum);
     let floatSum : Float = Float.fromInt64(intSum);
     (1.0 * floatSum * 0.1, 1.0 * (1.0 * floatSum * 0.1));
   };
 
-  public func getTotalTokenSum(account : RefAccount) : async Nat {
+  private func getTotalTokenSum(account : RefAccount) : async Nat {
     (await getRefTokenSum(account)) + (await getTierTokenSum(account));
   };
 
-  public shared func getRefTokenSum(account : RefAccount) : async Nat {
+  private func getRefTokenSum(account : RefAccount) : async Nat {
     let tokenSum = Array.foldLeft<Token, Nat>(
       account.tokens,
       0,
@@ -239,7 +242,7 @@ actor {
     tokenSum;
   };
 
-  public func getTierTokenSum(account : RefAccount) : async Nat {
+  private func getTierTokenSum(account : RefAccount) : async Nat {
     let tierTokenSum = Array.foldLeft<Tier, Nat>(
       account.tiers,
       0,
@@ -254,7 +257,7 @@ actor {
     tierTokenSum;
   };
 
-  public func getTopPlayers(page : Nat) : async [TopPLayersView] {
+  private func getTopPlayers(page : Nat) : async [TopPLayersView] {
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(
       Iter.toArray(accounts.entries())
     );
@@ -389,7 +392,7 @@ actor {
     };
   };
   //this must be with shared({caller})
-  public shared ({ caller }) func claimTierToken(id : Principal) : async (Bool, Text) {
+  public func claimTierToken(id : Principal) : async (Bool, Text) {
     let (tierStatus, tierID) = switch (await getCurrentPlayerTier(id)) {
       case null { return (false, "Reached all tiers.") };
       case (?tier) { (tier.status, tier.id) };
@@ -433,6 +436,7 @@ actor {
       };
     } else { return (false, "Tier not completed yet.") };
   };
+
   public shared ({ caller }) func enrollPlayer(signupCode : ?Text, alias : Text) : async (Bool, Text) {
     switch (accounts.get(caller)) {
       case null {
@@ -488,6 +492,7 @@ actor {
       };
     };
   };
+
   public func enrollByPrincipal(signupCode : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
     switch (accounts.get(principal)) {
       case null {
@@ -544,16 +549,11 @@ actor {
       };
     };
   };
-  public query ({ caller }) func getAccount() : async ?RefAccount {
-    return accounts.get(caller);
-  };
-  public query func getAllAccounts() : async [RefAccount] {
-    return Iter.toArray(accounts.vals());
-  };
-  public query ({ caller }) func signupLinkShare() : async Text {
+
+  private func signupLinkShare(id : Principal) : async Text {
     let route = "https://cosmicrafts.com/signup_prom/";
     let err = "https://cosmicrafts.com/signup_prom/account_not_found";
-    switch (accounts.get(caller)) {
+    switch (accounts.get(id)) {
       case (?refAccount) {
         let uuid : Text = refAccount.uuid;
         route # uuid;
@@ -561,6 +561,7 @@ actor {
       case null err;
     };
   };
+
   private func principalByUUID(uuid : UUID) : async ?Principal {
     let mappedIter = Iter.filter<(Principal, RefAccount)>(
       Iter.fromArray(_accounts),
@@ -578,6 +579,7 @@ actor {
       case (?(principal, _)) { ?principal };
     };
   };
+
   private func generateUUID64() : async Text {
     let randomBytes = await Random.blob();
     var uuid : Nat = 0;
@@ -593,6 +595,7 @@ actor {
     uuid := uuid % 2147483647;
     return Nat.toText(uuid);
   };
+
   public func generateRandomPrincipal() : async Principal {
     let randomBytes = await Random.blob();
     let randomArray = Blob.toArray(randomBytes);
