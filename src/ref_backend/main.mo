@@ -180,6 +180,10 @@ actor {
   };
   //this must be shared ({ caller })
   public func getRefaccountView(id : Principal) : async ?RefAccountView {
+    // Lanzar claimTopWeeklyToken todos los lunes
+
+    let (_, _) = await claimTopWeeklyToken(id);
+
     let account = switch (accounts.get(id)) {
       case null { return null };
       case (?acc) {
@@ -187,6 +191,7 @@ actor {
       };
     };
     let (multiplier, networth) = await getTokenomics(account);
+    let (_, position) = await getPlayerTopPosition(id);
     let currentTier = switch (await getCurrentPlayerTier(id)) {
       case null { return null };
       case (?tier) tier;
@@ -201,23 +206,115 @@ actor {
       multiplier = multiplier;
       netWorth = networth;
       topPlayers = await getTopPlayers(0);
-      topPosition = await getPlayerTopPosition(id);
+      topPosition = position;
       topTokenAmount = await getTopWeeklyTokenAmount(id);
       singupLink = await signupLinkShare(id);
     };
     ?r;
   };
 
-  private func getPlayerTopPosition(id : Principal) : async Nat {
-    0; //not implemented
+  private func getPlayerTopPosition(id : Principal) : async (Bool, Nat) {
+    let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
+    var playersWithTokenSums : [(Principal, Nat)] = [];
+    for (i in Iter.range(0, playersArray.size() - 1)) {
+      let (principal, account) = playersArray.get(i);
+      let tokenSum = await getTotalTokenSum(account);
+      playersWithTokenSums := Array.append(playersWithTokenSums, [(principal, tokenSum)]);
+    };
+    let sortedPlayers = Array.sort(
+      playersWithTokenSums,
+      func(a : (Principal, Nat), b : (Principal, Nat)) : {
+        #less;
+        #equal;
+        #greater;
+      } {
+        if (a.1 > b.1) {
+          #less;
+        } else if (a.1 < b.1) {
+          #greater;
+        } else {
+          #equal;
+        };
+      },
+    );
+    var position : Nat = 0;
+    for ((principal, _) in sortedPlayers.vals()) {
+      if (principal == id) {
+        return (true, position);
+      };
+      position += 1;
+    };
+    return (false, 0);
   };
 
-  public query func claimTopWeeklyToken(id : Principal) : async (Bool, Text) {
-    (false, "not implemented");
+  private func isMonday(timestamp : Time.Time) : Bool {
+    let secondsPerDay : Int = 86400;
+    let daysSinceEpoch = Int64.toInt(Int64.fromIntWrap(timestamp) / Int64.fromInt(secondsPerDay));
+    let dayOfWeek = (daysSinceEpoch + 3) % 7;
+    return dayOfWeek == 0;
+  };
+
+  public func claimTopWeeklyToken(id : Principal) : async (Bool, Text) {
+    if (isMonday(Time.now())) {
+      let tokenAmount = await getTopWeeklyTokenAmount(id);
+      if (tokenAmount > 0) {
+        let (minted, result) = await mintTokensStandalone(id, tokenAmount);
+        if (minted) {
+
+          switch (accounts.get(id)) {
+            case (null) {
+              return (false, "Player not found.");
+            };
+            case (?account) {
+              let token : Token = {
+                title = "Weekly Top Player Token";
+                amount = tokenAmount;
+              };
+              let updatedTokens = Array.append(account.tokens, [token]);
+              let updatedAccount : RefAccount = {
+                playerID = account.playerID;
+                refByUUID = account.refByUUID;
+                uuid = account.uuid;
+                alias = account.alias;
+                tiers = account.tiers;
+                tokens = updatedTokens;
+              };
+              accounts.put(id, updatedAccount);
+              _accounts := Iter.toArray(accounts.entries());
+              return (true, "Weekly top player token claimed: " # result);
+            };
+          };
+        } else {
+          return (false, "Error minting weekly top player token: " # result);
+        };
+      } else {
+        return (false, "Player not in top 10.");
+      };
+    } else {
+      return (false, "Only on moday's may be claimed");
+    };
   };
 
   private func getTopWeeklyTokenAmount(id : Principal) : async Nat {
-    0; //not implemented
+    let topPlayers = await getTopPlayers(0);
+    switch (accounts.get(id)) {
+      case (null) {
+        return 0;
+      };
+      case (?account) {
+        for (player in topPlayers.vals()) {
+          if (player.playerName == account.alias) {
+            for (token in account.tokens.vals()) {
+              if (token.title == "Weekly Top Player Token") {
+                return token.amount;
+              };
+            };
+            return 0;
+          };
+        };
+        return 0;
+      };
+    };
   };
 
   private func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
