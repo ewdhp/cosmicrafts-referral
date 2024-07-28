@@ -24,6 +24,12 @@ actor {
 
   type UUID = Text;
   type TierID = Nat;
+  type Multiplier = Float;
+  type Networth = Float;
+
+  type F = () -> Bool;
+  private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
+
   type RefAccount = {
     playerID : Principal;
     refByUUID : UUID;
@@ -31,8 +37,6 @@ actor {
     alias : Text;
     tiers : [Tier];
     tokens : [Token];
-    multiplier : Float;
-    netWorth : Float;
   };
   type Tier = {
     id : TierID;
@@ -44,6 +48,21 @@ actor {
   type Token = {
     title : Text;
     amount : Nat;
+  };
+
+  type RefAccountView = {
+    playerID : Principal;
+    playerName : Text;
+    currentTier : Tier;
+    tierTokenSum : Nat;
+    signupTokenSum : Nat;
+    tokenTotal : Nat;
+    multiplier : Float;
+    netWorth : Float;
+    topPlayers : [TopPLayersView];
+    topPosition : Nat;
+    topTokenAmount : Nat;
+    singupLink : Text;
   };
   type TopPLayersView = {
     playerName : Text;
@@ -121,8 +140,7 @@ actor {
     token = { title = "Tier 3 Tweeter token"; amount = 25 };
   };
   tiers.add(tweeterTier);
-  type F = () -> Bool;
-  private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
+
   private func validateSignupTier() : Bool {
     return true;
   };
@@ -139,9 +157,9 @@ actor {
   public query func getAlltiers() : async [Tier] {
     return Buffer.toArray(tiers);
   };
-  public func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
-    let player = accounts.get(playerId);
 
+  public query func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
+    let player = accounts.get(playerId);
     switch (player) {
       case (null) {
         return null;
@@ -152,32 +170,64 @@ actor {
             return ?tier;
           };
         };
-        return null;
+        let size = player.tiers.size();
+        ?player.tiers.get(size - 1);
       };
     };
   };
-  //needs to be added a multiplier in refaccount and sum also the tiertokens
-  public func calculateDynamicMultiplier(tokenCount : Nat) : async Float {
-    let value : Nat64 = Nat64.fromNat(tokenCount);
-    let intValue : Int64 = Int64.fromNat64(value);
-    let floatValue : Float = Float.fromInt64(intValue);
-    return 1.0 + floatValue * 0.1;
-  };
-  public func calculateNetWorth(tokens : [Token]) : async Float {
-    var totalAmount : Nat = 0;
-    for (token in tokens.vals()) {
-      totalAmount += token.amount;
+  //this must be shared ({ caller })
+  public func getRefaccountView(id : Principal) : async ?RefAccountView {
+    let account = switch (accounts.get(id)) {
+      case null { return null };
+      case (?acc) {
+        acc;
+      };
     };
-    let tokenCount = Array.size(tokens);
-    let value : Nat64 = Nat64.fromNat(totalAmount);
-    let intValue : Int64 = Int64.fromNat64(value);
-    let floatValue : Float = Float.fromInt64(intValue);
-    let multiplier = await calculateDynamicMultiplier(tokenCount);
-    return floatValue * multiplier;
+    let (multiplier, networth) = await getTokenomics(account);
+    let currentTier = switch (await getCurrentPlayerTier(id)) {
+      case null { return null };
+      case (?tier) tier;
+    };
+    let r : RefAccountView = {
+      playerID = id;
+      playerName = account.alias;
+      currentTier = currentTier;
+      tierTokenSum = await getTierTokenSum(account);
+      signupTokenSum = await getRefTokenSum(account);
+      tokenTotal = await getTotalTokenSum(account);
+      multiplier = multiplier;
+      netWorth = networth;
+      topPlayers = await getTopPlayers(0);
+      topPosition = await getPlayerTopPosition(id);
+      topTokenAmount = await getTopWeeklyTokenAmount(id);
+      singupLink = await signupLinkShare();
+    };
+    ?r;
   };
+
+  public func getPlayerTopPosition(id : Principal) : async Nat {
+    0; //not implemented
+  };
+
+  public query func claimTopWeeklyToken(id : Principal) : async (Bool, Text) {
+    (false, "not implemented");
+  };
+
+  public query func getTopWeeklyTokenAmount(id : Principal) : async Nat {
+    0; //not implemented
+  };
+
+  public func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
+    let sum : Nat64 = Nat64.fromNat(await getTotalTokenSum(account));
+    let intSum : Int64 = Int64.fromNat64(sum);
+    let floatSum : Float = Float.fromInt64(intSum);
+    (1.0 * floatSum * 0.1, 1.0 * (1.0 * floatSum * 0.1));
+  };
+
   public func getTotalTokenSum(account : RefAccount) : async Nat {
-    ((await getRefTokenSum(account)) + (await getTierTokenSum(account)));
+    (await getRefTokenSum(account)) + (await getTierTokenSum(account));
   };
+
   public shared func getRefTokenSum(account : RefAccount) : async Nat {
     let tokenSum = Array.foldLeft<Token, Nat>(
       account.tokens,
@@ -186,8 +236,9 @@ actor {
         acc + token.amount;
       },
     );
-    return tokenSum;
+    tokenSum;
   };
+
   public func getTierTokenSum(account : RefAccount) : async Nat {
     let tierTokenSum = Array.foldLeft<Tier, Nat>(
       account.tiers,
@@ -200,79 +251,98 @@ actor {
         };
       },
     );
-    return tierTokenSum;
+    tierTokenSum;
   };
+
   public func getTopPlayers(page : Nat) : async [TopPLayersView] {
-    let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
-
-    // Create a new array to hold players with their token sums
+    let playersArray = Buffer.fromArray<(Principal, RefAccount)>(
+      Iter.toArray(accounts.entries())
+    );
     var playersWithTokenSums : [(Principal, RefAccount, Nat)] = [];
-
     for (i in Iter.range(0, playersArray.size() - 1)) {
       let (principal, account) = playersArray.get(i);
-      let netWorth = await calculateNetWorth(account.tokens);
-      let tokenSum = await getTotalTokenSum(account); // Calculate total token sum
-
-      // Add player with their token sum to the new array
-      playersWithTokenSums := Array.append(playersWithTokenSums, [(principal, { playerID = account.playerID; refByUUID = account.refByUUID; uuid = account.uuid; alias = account.alias; tiers = account.tiers; tokens = account.tokens; netWorth = netWorth; multiplier = 0.0; /* Not implemented */ }, tokenSum)]);
+      let (multiplier, networth) = await getTokenomics(account);
+      let tokenSum = await getTotalTokenSum(account);
+      playersWithTokenSums := Array.append(
+        playersWithTokenSums,
+        [(
+          principal,
+          {
+            playerID = account.playerID;
+            refByUUID = account.refByUUID;
+            uuid = account.uuid;
+            alias = account.alias;
+            tiers = account.tiers;
+            tokens = account.tokens;
+            netWorth = networth;
+            multiplier = multiplier;
+          },
+          tokenSum,
+        )],
+      );
     };
-
-    // Sort players by greater token sum
     let sortedPlayers = Array.sort(
       playersWithTokenSums,
-      func(a : (Principal, RefAccount, Nat), b : (Principal, RefAccount, Nat)) : {
+      func(
+        a : (Principal, RefAccount, Nat),
+        b : (Principal, RefAccount, Nat),
+      ) : {
         #less;
         #equal;
         #greater;
       } {
-        if (a.2 > b.2) { #less } else if (a.2 < b.2) { #greater } else {
+        if (a.2 > b.2) {
+          #less;
+        } else if (a.2 < b.2) {
+          #greater;
+        } else {
           #equal;
         };
       },
     );
-
     let start = page * 10;
     let end = if (start + 10 > Array.size(sortedPlayers)) {
       Array.size(sortedPlayers);
     } else { start + 10 };
-    let paginatedPlayers = Iter.toArray(Array.slice(sortedPlayers, start, end));
-
+    let paginatedPlayers = Iter.toArray(
+      Array.slice(
+        sortedPlayers,
+        start,
+        end,
+      )
+    );
     var viewArray : [TopPLayersView] = [];
+
     for ((_, refAccount, tokenSum) in paginatedPlayers.vals()) {
+      let (multiplier, networth) = await getTokenomics(refAccount);
       let rowView : TopPLayersView = {
         playerName = refAccount.alias;
-        tokenCount = tokenSum; // Use the tokenSum calculated earlier
-        multiplier = refAccount.multiplier;
-        netWorth = refAccount.netWorth;
+        tokenCount = tokenSum;
+        multiplier = multiplier;
+        netWorth = networth;
       };
       viewArray := Array.append(viewArray, [rowView]);
     };
-
     return viewArray;
   };
 
   private func claimReferralToken(code : UUID, token : Token) : async (Bool, Text) {
-
     let id = switch (await principalByUUID(code)) {
       case null { return (false, "Code not found") };
       case (?id) { id };
     };
-
     switch (accounts.get(id)) {
       case null { return (false, "Player principal not found.") };
       case (?account) {
-
         if (account.refByUUID == code) {
           return (false, "Error. Code already redeemed");
         };
         let size = (Array.size(account.tokens));
         if (size > 3) { return (false, "Reached max referral per player") };
-        // let (result, _) = await mintTokensStandalone(id, token.amount);
         if (size > 0) {
           let (minted, result) = await mintTokensStandalone(id, signupToken.amount);
           if (minted) {
             let tokens : [[Token]] = Iter.toArray(refTokens.vals());
-
             let updAcc : RefAccount = {
               playerID = account.playerID;
               refByUUID = account.refByUUID;
@@ -280,8 +350,6 @@ actor {
               alias = account.alias;
               tiers = account.tiers;
               tokens = Array.append(tokens[0], [token]);
-              netWorth = account.netWorth;
-              multiplier = 0.0; //not implemented
             };
             refTokens.put(account.playerID, updAcc.tokens);
             _refTokens := Iter.toArray(refTokens.entries());
@@ -304,8 +372,6 @@ actor {
               alias = account.alias;
               tiers = account.tiers;
               tokens = [token];
-              netWorth = account.netWorth;
-              multiplier = 0.0; //not implemented
             };
             refTokens.put(account.playerID, updAcc.tokens);
             _refTokens := Iter.toArray(refTokens.entries());
@@ -323,7 +389,7 @@ actor {
     };
   };
   //this must be with shared({caller})
-  public func claimTierToken(id : Principal) : async (Bool, Text) {
+  public shared ({ caller }) func claimTierToken(id : Principal) : async (Bool, Text) {
     let (tierStatus, tierID) = switch (await getCurrentPlayerTier(id)) {
       case null { return (false, "Reached all tiers.") };
       case (?tier) { (tier.status, tier.id) };
@@ -359,8 +425,6 @@ actor {
             alias = account.alias;
             tiers = updTiers;
             tokens = account.tokens;
-            netWorth = account.netWorth;
-            multiplier = 0.0; //not implemented
           };
           accounts.put(id, updAcc);
           _accounts := Iter.toArray(accounts.entries());
