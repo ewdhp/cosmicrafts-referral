@@ -506,34 +506,40 @@ actor {
       switch (accounts.get(id)) {
         case null { return (false, "Player not found.") };
         case (?account) {
-          let updTiers = Array.tabulate<Tier>(
-            Array.size(account.tiers),
-            func(i : Nat) : Tier {
-              if (i == tierID) {
-                let updTier : Tier = {
-                  id = account.tiers[i].id;
-                  title = account.tiers[i].title;
-                  desc = account.tiers[i].desc;
-                  status = "Complete";
-                  token = account.tiers[i].token;
+          let (minted, result) = await mintTokensStandalone (id;
+          signupToken.amount; //error
+          if (minted) {
+            let updTiers = Array.tabulate<Tier>(
+              Array.size(account.tiers),
+              func(i : Nat) : Tier {
+                if (i == tierID) {
+                  let updTier : Tier = {
+                    id = account.tiers[i].id;
+                    title = account.tiers[i].title;
+                    desc = account.tiers[i].desc;
+                    status = "Complete";
+                    token = account.tiers[i].token;
+                  };
+                  return updTier;
+                } else {
+                  return account.tiers[i];
                 };
-                return updTier;
-              } else {
-                return account.tiers[i];
-              };
-            },
-          );
-          let updAcc : RefAccount = {
-            playerID = account.playerID;
-            refByUUID = account.refByUUID;
-            uuid = account.uuid;
-            alias = account.alias;
-            tiers = updTiers;
-            tokens = account.tokens;
+              },
+            );
+            let updAcc : RefAccount = {
+              playerID = account.playerID;
+              refByUUID = account.refByUUID;
+              uuid = account.uuid;
+              alias = account.alias;
+              tiers = updTiers;
+              tokens = account.tokens;
+            };
+            accounts.put(id, updAcc);
+            _accounts := Iter.toArray(accounts.entries());
+            return (true, "Tier complete, token minted" # " " # result);
+          } else {
+            return (false, result);
           };
-          accounts.put(id, updAcc);
-          _accounts := Iter.toArray(accounts.entries());
-          return (true, "Tier completed, token minted");
         };
       };
     } else { return (false, "Tier not completed yet.") };
