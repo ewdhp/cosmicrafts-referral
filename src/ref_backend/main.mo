@@ -14,10 +14,7 @@ import Float "mo:base/Float";
 import Int64 "mo:base/Int64";
 import Text "mo:base/Text";
 
-//importa los tipos del ICRC1
 import TypesICRC1 "../icrc1/Types";
-
-//importa el nuevo Utils, para desacople de funciones que no interactuen con variables estables declaradas en el actor
 import Utils "Utils";
 
 actor {
@@ -49,7 +46,6 @@ actor {
     title : Text;
     amount : Nat;
   };
-
   type RefAccountView = {
     playerID : Principal;
     playerName : Text;
@@ -70,18 +66,19 @@ actor {
     multiplier : Multiplier;
     netWorth : Networth;
   };
+
   private stable var _tiers : [Tier] = [];
-  private var tiers : Buffer.Buffer<Tier> = Buffer.fromArray<Tier>(_tiers);
   private stable var _accounts : [(Principal, RefAccount)] = [];
-  private var accounts : HashMap.HashMap<Principal, RefAccount> = HashMap.fromIter(
-    Iter.fromArray(_accounts),
+  private stable var _refTokens : [(Principal, [Token])] = [];
+  private var tiers : Buffer.Buffer<Tier> = Buffer.fromArray<Tier>(_tiers);
+  private var refTokens : HashMap.HashMap<Principal, [Token]> = HashMap.fromIter(
+    Iter.fromArray(_refTokens),
     0,
     Principal.equal,
     Principal.hash,
   );
-  private stable var _refTokens : [(Principal, [Token])] = [];
-  private var refTokens : HashMap.HashMap<Principal, [Token]> = HashMap.fromIter(
-    Iter.fromArray(_refTokens),
+  private var accounts : HashMap.HashMap<Principal, RefAccount> = HashMap.fromIter(
+    Iter.fromArray(_accounts),
     0,
     Principal.equal,
     Principal.hash,
@@ -91,7 +88,6 @@ actor {
     _accounts := Iter.toArray(accounts.entries());
     _refTokens := Iter.toArray(refTokens.entries());
     _tiers := Buffer.toArray(tiers);
-
   };
   system func postupgrade() {
     accounts := HashMap.fromIter(
@@ -106,7 +102,6 @@ actor {
       Principal.equal,
       Principal.hash,
     );
-
     tiers := Buffer.fromArray<Tier>(_tiers);
     _tiers := [];
     _refTokens := [];
@@ -114,7 +109,7 @@ actor {
 
   let signupToken : Token = {
     title = "Referral Signup token";
-    amount = 5;
+    amount = 25;
   };
 
   let missionTier : Tier = {
@@ -180,10 +175,7 @@ actor {
   };
   //this must be shared ({ caller })
   public func getRefaccountView(id : Principal) : async ?RefAccountView {
-    // Lanzar claimTopWeeklyToken todos los lunes
-
     let (_, _) = await claimTopWeeklyToken(id);
-
     let account = switch (accounts.get(id)) {
       case null { return null };
       case (?acc) {
@@ -417,7 +409,6 @@ actor {
       )
     );
     var viewArray : [TopPLayersView] = [];
-
     for ((_, refAccount, tokenSum) in paginatedPlayers.vals()) {
       let (multiplier, networth) = await getTokenomics(refAccount);
       let rowView : TopPLayersView = {
@@ -506,8 +497,8 @@ actor {
       switch (accounts.get(id)) {
         case null { return (false, "Player not found.") };
         case (?account) {
-          let (minted, result) = await mintTokensStandalone (id;
-          signupToken.amount; //error
+          let tokenAmont = account.tiers[tierID].token.amount;
+          let (minted, result) = await mintTokensStandalone(id, tokenAmont);
           if (minted) {
             let updTiers = Array.tabulate<Tier>(
               Array.size(account.tiers),
@@ -717,7 +708,7 @@ actor {
     return Principal.fromBlob(Blob.fromArray(truncatedBytes));
   };
 
-  let tokenX : ICRC1Interface = actor ("br5f7-7uaaa-aaaaa-qaaca-cai") : ICRC1Interface;
+  let tokenX : ICRC1Interface = actor ("bkyz2-fmaaa-aaaaa-qaaaq-cai") : ICRC1Interface;
   type ICRC1Interface = actor {
     icrc1_name : shared () -> async Text;
     icrc1_symbol : shared () -> async Text;
