@@ -11,7 +11,6 @@ import Blob "mo:base/Blob";
 import Nat8 "mo:base/Nat8";
 import Buffer "mo:base/Buffer";
 import Float "mo:base/Float";
-import Int64 "mo:base/Int64";
 import Text "mo:base/Text";
 
 import TypesICRC1 "../icrc1/Types";
@@ -31,7 +30,7 @@ actor {
     playerID : Principal;
     refByUUID : UUID;
     uuid : UUID;
-    alias : Text; //not implemented
+    alias : Text;
     tiers : [Tier];
     tokens : [Token];
   };
@@ -51,13 +50,12 @@ actor {
     playerName : Text;
     currentTier : Tier;
     tierTokenSum : Nat;
-    signupTokenSum : Nat;
-    tokenTotal : Nat;
     multiplier : Multiplier;
     netWorth : Networth;
     topPlayers : [TopPLayersView];
     topPosition : Nat;
     topTokenAmount : (Nat, Text);
+    signupTokenSum : Nat;
     singupLink : Text;
   };
   type TopPLayersView = {
@@ -155,7 +153,6 @@ actor {
   public query func getAlltiers() : async [Tier] {
     return Buffer.toArray(tiers);
   };
-
   private func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
     let player = accounts.get(playerId);
     switch (player) {
@@ -173,9 +170,19 @@ actor {
       };
     };
   };
-  //this must be shared ({ caller })
+  public query func getAccountBy(id : Principal) : async ?RefAccount {
+    return accounts.get(id);
+  };
+  public query ({ caller }) func getAccount() : async ?RefAccount {
+    return accounts.get(caller);
+  };
+  public query func getAllAccounts() : async [(Text, Principal)] {
+    let acc = Iter.toArray(accounts.vals());
+    let buffer = Buffer.Buffer<(Text, Principal)>(acc.size());
+    for (account in acc.vals()) buffer.add(account.alias, account.playerID);
+    Buffer.toArray(buffer);
+  };
   public func getRefaccountView(id : Principal) : async ?RefAccountView {
-    let (_, _) = await claimTopWeeklyToken(id);
     let account = switch (accounts.get(id)) {
       case null { return null };
       case (?acc) {
@@ -183,7 +190,6 @@ actor {
       };
     };
     let (multiplier, networth) = await getTokenomics(account);
-    let (amount, text) = await getTopWeeklyTokenAmount(id);
     let currentTier = switch (await getCurrentPlayerTier(id)) {
       case null { return null };
       case (?tier) tier;
@@ -192,11 +198,10 @@ actor {
       playerID = id;
       playerName = account.alias;
       currentTier = currentTier;
-      tierTokenSum = await getTierTokenSum(account);
-      signupTokenSum = await getRefTokenSum(account);
-      tokenTotal = await getTotalTokenSum(account);
       multiplier = multiplier;
       netWorth = networth;
+      tierTokenSum = await getTierTokenSum(account);
+      signupTokenSum = await getRefTokenSum(account);
       topPlayers = await getTopPlayers(0);
       topPosition = await getPlayerTopPosition(id);
       topTokenAmount = await getTopWeeklyTokenAmount(id);
@@ -204,7 +209,6 @@ actor {
     };
     ?r;
   };
-
   private func getPlayerTopPosition(id : Principal) : async Nat {
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
     var playersWithTokenSums : [(Principal, Nat)] = [];
@@ -232,22 +236,14 @@ actor {
     var position : Nat = 0;
     for ((principal, _) in sortedPlayers.vals()) {
       if (principal == id) {
-        return position;
+        return position + 1;
       };
       position += 1;
     };
     return 0;
   };
-
-  private func isMonday(timestamp : Time.Time) : Bool {
-    let secondsPerDay : Int = 86400;
-    let daysSinceEpoch = Int64.toInt(Int64.fromIntWrap(timestamp) / Int64.fromInt(secondsPerDay));
-    let dayOfWeek = (daysSinceEpoch + 3) % 7;
-    return dayOfWeek == 0;
-  };
-
-  public func claimTopWeeklyToken(id : Principal) : async (Bool, Text) {
-    if (isMonday(Time.now())) {
+  public func claimTopWeeklyToken(id : Principal, day : Nat) : async (Bool, Text) {
+    if (day == 1) {
       let (tokenAmount, _) = await getTopWeeklyTokenAmount(id);
       if (tokenAmount > 0) {
         let (minted, result) = await mintTokensStandalone(id, tokenAmount);
@@ -286,7 +282,6 @@ actor {
       return (false, "Only on moday's may be claimed");
     };
   };
-
   private func getTopWeeklyTokenAmount(id : Principal) : async (Nat, Text) {
     let topPlayers = await getTopPlayers(0);
     switch (accounts.get(id)) {
@@ -308,7 +303,6 @@ actor {
       };
     };
   };
-
   private func getTokenomics(account : RefAccount) : async (Multiplier, Networth) {
     let networth = await getTotalTokenSum(account);
     let multiplier : Float = if (networth <= 5) {
@@ -320,11 +314,9 @@ actor {
     };
     return (multiplier, networth);
   };
-
   private func getTotalTokenSum(account : RefAccount) : async Nat {
     (await getRefTokenSum(account)) + (await getTierTokenSum(account));
   };
-
   private func getRefTokenSum(account : RefAccount) : async Nat {
     let tokenSum = Array.foldLeft<Token, Nat>(
       account.tokens,
@@ -335,7 +327,6 @@ actor {
     );
     tokenSum;
   };
-
   private func getTierTokenSum(account : RefAccount) : async Nat {
     let tierTokenSum = Array.foldLeft<Tier, Nat>(
       account.tiers,
@@ -350,7 +341,6 @@ actor {
     );
     tierTokenSum;
   };
-
   private func getTopPlayers(page : Nat) : async [TopPLayersView] {
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(
       Iter.toArray(accounts.entries())
@@ -421,7 +411,6 @@ actor {
     };
     return viewArray;
   };
-
   private func claimReferralToken(code : UUID, token : Token) : async (Bool, Text) {
     let id = switch (await principalByUUID(code)) {
       case null { return (false, "Code not found") };
@@ -434,7 +423,9 @@ actor {
           return (false, "Error. Code already redeemed");
         };
         let size = (Array.size(account.tokens));
-        if (size > 3) { return (false, "Reached max referral per player") };
+        if (size > 3) {
+          return (false, "Reached max referral per player");
+        };
         if (size > 0) {
           let (minted, result) = await mintTokensStandalone(id, signupToken.amount);
           if (minted) {
@@ -484,7 +475,6 @@ actor {
       };
     };
   };
-  //this must be with shared({caller})
   public func claimTierToken(id : Principal) : async (Bool, Text) {
     let (tierStatus, tierID) = switch (await getCurrentPlayerTier(id)) {
       case null { return (false, "Reached all tiers.") };
@@ -535,7 +525,6 @@ actor {
       };
     } else { return (false, "Tier not completed yet.") };
   };
-
   public shared ({ caller }) func enrollPlayer(signupCode : ?Text, alias : Text) : async (Bool, Text) {
     switch (accounts.get(caller)) {
       case null {
@@ -591,7 +580,6 @@ actor {
       };
     };
   };
-
   public func enrollByPrincipal(signupCode : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
     switch (accounts.get(principal)) {
       case null {
@@ -648,7 +636,6 @@ actor {
       };
     };
   };
-
   private func signupLinkShare(id : Principal) : async Text {
     let route = "https://cosmicrafts.com/signup_prom/";
     let err = "https://cosmicrafts.com/signup_prom/account_not_found";
@@ -660,7 +647,6 @@ actor {
       case null err;
     };
   };
-
   private func principalByUUID(uuid : UUID) : async ?Principal {
     let mappedIter = Iter.filter<(Principal, RefAccount)>(
       Iter.fromArray(_accounts),
@@ -678,7 +664,6 @@ actor {
       case (?(principal, _)) { ?principal };
     };
   };
-
   private func generateUUID64() : async Text {
     let randomBytes = await Random.blob();
     var uuid : Nat = 0;
@@ -694,7 +679,6 @@ actor {
     uuid := uuid % 2147483647;
     return Nat.toText(uuid);
   };
-
   public func generateRandomPrincipal() : async Principal {
     let randomBytes = await Random.blob();
     let randomArray = Blob.toArray(randomBytes);
@@ -728,29 +712,21 @@ actor {
     deposit_cycles : shared () -> async ();
   };
   private func mintTokensStandalone(principalId : Principal, amount : Nat) : async (Bool, Text) {
-    // Prepare mint arguments
     let _tokenXArgs : TypesICRC1.Mint = {
       to = { owner = principalId; subaccount = null };
       amount = amount;
       memo = null;
       created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
     };
-
-    // Mint tokenX
     let tokenXMinted = await tokenX.mint(_tokenXArgs);
-
-    // Handle tokenX minting result
     let tokenXResult = switch (tokenXMinted) {
       case (#Ok(_tid)) "{\"token\":\"Token X\", \"transaction_id\": " # Nat.toText(_tid) # ", \"amount\": " # Nat.toText(amount) # "}";
       case (#Err(_e)) Utils.handleMintError("Token X", _e);
     };
-
-    // Check the result and return
     let success = switch (tokenXMinted) {
       case (#Ok(_tid)) true;
       case (#Err(_e)) false;
     };
-
     return (success, tokenXResult);
   };
 };
