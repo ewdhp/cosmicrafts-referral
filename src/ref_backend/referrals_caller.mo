@@ -336,19 +336,7 @@ actor {
             case null { return null };
             case (?tier) tier;
         };
-        // The layout has background light , a top nav bar as slot with a logo component
-        //inside : svg(create one) and companyName title, a main content slot where all
-        //the others components goes, and a footer slot 'Cosmicrafts All rights reserved'.
-        //All components with white background and radious corners with some padding and margin
-        //inside all components all divs bordered please.
-        //Account component: just displays as text all values
-        //TopPlayersGrid component: data table grid component with header
-        //Topweekly component: card component with title: Top Weekly Referral's and content position : x , Prize: x
-        //ShareLink component: card component with title: Share link and content:
-        //"share and recieve 25 tokens free" and then hoizontally aligned a button with
-        //a svg share.
-        //Tier component: title: Tier {id} and all data inside the type plus a button that maps to the
-        //claimTier() function in motoko
+
         let r : RefAccountView = {
             playerID = id; //Account component
             playerName = account.alias; //Account component
