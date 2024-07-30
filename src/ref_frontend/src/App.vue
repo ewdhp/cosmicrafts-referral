@@ -9,7 +9,9 @@
     <div v-else>
       <Account v-if="account" :account="account" />
       <TopPlayersGrid v-if="topPlayers.length" :topPlayers="topPlayers" />
-      <TopWeekly v-if="topWeeklyPosition !== null && topWeeklyPrize !== null" :position="Number(topWeeklyPosition)" :prize="Number(topWeeklyPrize)" />
+      <TopWeekly 
+      v-if="topWeeklyPosition !== null && topWeeklyPrize !== null" 
+      :position="Number(topWeeklyPosition)" :prize="Number(topWeeklyPrize)" />
       <ShareLink v-if="signupLink" :link="signupLink" />
       <Tier v-if="currentTier" :tier="currentTier" @claim-tier="claimTier" />
     </div>

@@ -49,7 +49,6 @@ actor {
     playerID : Principal;
     playerName : Text;
     currentTier : Tier;
-    tierTokenSum : Nat;
     multiplier : Multiplier;
     netWorth : Networth;
     topPlayers : [TopPLayersView];
@@ -151,30 +150,13 @@ actor {
   validateFunc.add(validateTweeterTier);
 
   public query func getAlltiers() : async [Tier] {
-    return Buffer.toArray(tiers);
-  };
-  private func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
-    let player = accounts.get(playerId);
-    switch (player) {
-      case (null) {
-        return null;
-      };
-      case (?player) {
-        for (tier in player.tiers.vals()) {
-          if (tier.status == "Progress") {
-            return ?tier;
-          };
-        };
-        let size = player.tiers.size();
-        ?player.tiers.get(size - 1);
-      };
-    };
+    Buffer.toArray(tiers);
   };
   public query func getAccountBy(id : Principal) : async ?RefAccount {
-    return accounts.get(id);
+    accounts.get(id);
   };
   public query ({ caller }) func getAccount() : async ?RefAccount {
-    return accounts.get(caller);
+    accounts.get(caller);
   };
   public query func getAllAccounts() : async [(Text, Principal)] {
     let acc = Iter.toArray(accounts.vals());
@@ -208,39 +190,6 @@ actor {
       singupLink = await signupLinkShare(id);
     };
     ?r;
-  };
-  private func getPlayerTopPosition(id : Principal) : async Nat {
-    let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
-    var playersWithTokenSums : [(Principal, Nat)] = [];
-    for (i in Iter.range(0, playersArray.size() - 1)) {
-      let (principal, account) = playersArray.get(i);
-      let tokenSum = await getTotalTokenSum(account);
-      playersWithTokenSums := Array.append(playersWithTokenSums, [(principal, tokenSum)]);
-    };
-    let sortedPlayers = Array.sort(
-      playersWithTokenSums,
-      func(a : (Principal, Nat), b : (Principal, Nat)) : {
-        #less;
-        #equal;
-        #greater;
-      } {
-        if (a.1 > b.1) {
-          #less;
-        } else if (a.1 < b.1) {
-          #greater;
-        } else {
-          #equal;
-        };
-      },
-    );
-    var position : Nat = 0;
-    for ((principal, _) in sortedPlayers.vals()) {
-      if (principal == id) {
-        return position + 1;
-      };
-      position += 1;
-    };
-    return 0;
   };
   public func claimTopWeeklyToken(id : Principal, day : Nat) : async (Bool, Text) {
     if (day == 1) {
@@ -282,6 +231,225 @@ actor {
       return (false, "Only on moday's may be claimed");
     };
   };
+  public func claimTierToken(id : Principal) : async (Bool, Text) {
+    let (tierStatus, tierID) = switch (await getCurrentPlayerTier(id)) {
+      case null { return (false, "Reached all tiers.") };
+      case (?tier) { (tier.status, tier.id) };
+    };
+    if (tierStatus == "complete") {
+      return (false, "Tier already completed");
+    };
+    if (validateFunc.get(tierID)()) {
+      switch (accounts.get(id)) {
+        case null { return (false, "Player not found.") };
+        case (?account) {
+          let tokenAmont = account.tiers[tierID].token.amount;
+          let (minted, result) = await mintTokensStandalone(id, tokenAmont);
+          if (minted) {
+            let updTiers = Array.tabulate<Tier>(
+              Array.size(account.tiers),
+              func(i : Nat) : Tier {
+                if (i == tierID) {
+                  let updTier : Tier = {
+                    id = account.tiers[i].id;
+                    title = account.tiers[i].title;
+                    desc = account.tiers[i].desc;
+                    status = "Complete";
+                    token = account.tiers[i].token;
+                  };
+                  return updTier;
+                } else {
+                  return account.tiers[i];
+                };
+              },
+            );
+            let updAcc : RefAccount = {
+              playerID = account.playerID;
+              refByUUID = account.refByUUID;
+              uuid = account.uuid;
+              alias = account.alias;
+              tiers = updTiers;
+              tokens = account.tokens;
+            };
+            accounts.put(id, updAcc);
+            _accounts := Iter.toArray(accounts.entries());
+            return (true, "Tier complete, token minted" # " " # result);
+          } else {
+            return (false, result);
+          };
+        };
+      };
+    } else { return (false, "Tier not completed yet.") };
+  };
+  public shared ({ caller }) func enroll(signupCode : ?Text, alias : Text) : async (Bool, Text) {
+    switch (accounts.get(caller)) {
+      case null {
+        let code : Text = switch (signupCode) {
+          case (null) { "" };
+          case (?value) { value };
+        };
+        var id = await principalByUUID(code);
+        switch (id) {
+          case (null) {
+            accounts.put(
+              caller,
+              {
+                playerID = caller;
+                refByUUID = "";
+                uuid = await generateUUID64();
+                tiers = await getAlltiers();
+                alias = alias;
+                tokens = [];
+                netWorth = 0.0;
+                multiplier = 0.0; //not implemented
+              },
+            );
+            _accounts := Iter.toArray(accounts.entries());
+            let textNotfound = "Referral code not provided or code not found";
+            return (true, "Account enrrolled" # ", " # textNotfound);
+          };
+          case (?id) {
+            let (minted, text) = await claimReferralToken(code, signupToken);
+            if (minted) {
+              accounts.put(
+                caller,
+                {
+                  playerID = caller;
+                  refByUUID = if (minted) { code } else { "" };
+                  uuid = await generateUUID64();
+                  alias = alias;
+                  tiers = await getAlltiers();
+                  tokens = [];
+                  netWorth = 0.0;
+                  multiplier = 0.0; //not implemented
+                },
+              );
+              _accounts := Iter.toArray(accounts.entries());
+              return (true, "Account enrrolled" # ", " # text);
+            };
+            return (false, text);
+          };
+        };
+      };
+      case (?_) { return (false, "Error. Account exists.") };
+    };
+  };
+  public func enrollBy(uuid : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
+    switch (accounts.get(principal)) {
+      case null {
+        let code : Text = switch (uuid) {
+          case (null) { "" };
+          case (?value) { value };
+        };
+        var id = await principalByUUID(code);
+        switch (id) {
+          case (null) {
+
+            accounts.put(
+              principal,
+              {
+                playerID = principal;
+                refByUUID = "";
+                uuid = await generateUUID64();
+                alias = alias;
+                tiers = await getAlltiers();
+                tokens = [];
+                netWorth = 0.0;
+                multiplier = 0.0; //not implemented
+              },
+            );
+            _accounts := Iter.toArray(accounts.entries());
+            let nullUUID = "Signup code no provided or code not found";
+            return (true, "Account enrrolled" # ", " # nullUUID);
+          };
+          case (?id) {
+            let (minted, text) = await claimReferralToken(code, signupToken);
+            if (minted) {
+              accounts.put(
+                principal,
+                {
+                  playerID = principal;
+                  refByUUID = if (minted) { code } else { "" };
+                  uuid = await generateUUID64();
+                  alias = alias;
+                  tiers = await getAlltiers();
+                  tokens = [];
+                  netWorth = 0.0;
+                  multiplier = 0.0; //not implemented
+                },
+              );
+              _accounts := Iter.toArray(accounts.entries());
+              return (true, "Account enrrolled" # ", " # text);
+            };
+            return (false, text);
+          };
+        };
+      };
+      case (?_) { (false, "Error. Account exists.") };
+    };
+  };
+  public func generateRandomPrincipal() : async Principal {
+    let randomBytes = await Random.blob();
+    let randomArray = Blob.toArray(randomBytes);
+    let truncatedBytes = Array.tabulate<Nat8>(
+      29,
+      func(i : Nat) : Nat8 {
+        if (i < Array.size(randomArray)) randomArray[i] else 0;
+      },
+    );
+    return Principal.fromBlob(Blob.fromArray(truncatedBytes));
+  };
+
+  private func getCurrentPlayerTier(playerId : Principal) : async ?Tier {
+    let player = accounts.get(playerId);
+    switch (player) {
+      case (null) {
+        return null;
+      };
+      case (?player) {
+        for (tier in player.tiers.vals()) {
+          if (tier.status == "Progress") {
+            return ?tier;
+          };
+        };
+        let size = player.tiers.size();
+        ?player.tiers.get(size - 1);
+      };
+    };
+  };
+  private func getPlayerTopPosition(id : Principal) : async Nat {
+    let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
+    var playersWithTokenSums : [(Principal, Nat)] = [];
+    for (i in Iter.range(0, playersArray.size() - 1)) {
+      let (principal, account) = playersArray.get(i);
+      let tokenSum = await getTotalTokenSum(account);
+      playersWithTokenSums := Array.append(playersWithTokenSums, [(principal, tokenSum)]);
+    };
+    let sortedPlayers = Array.sort(
+      playersWithTokenSums,
+      func(a : (Principal, Nat), b : (Principal, Nat)) : {
+        #less;
+        #equal;
+        #greater;
+      } {
+        if (a.1 > b.1) {
+          #less;
+        } else if (a.1 < b.1) {
+          #greater;
+        } else {
+          #equal;
+        };
+      },
+    );
+    var position : Nat = 0;
+    for ((principal, _) in sortedPlayers.vals()) {
+      if (principal == id) {
+        return position + 1;
+      };
+      position += 1;
+    };
+    0;
+  };
   private func getTopWeeklyTokenAmount(id : Principal) : async (Nat, Text) {
     let topPlayers = await getTopPlayers(0);
     switch (accounts.get(id)) {
@@ -312,7 +480,7 @@ actor {
     } else {
       1.30;
     };
-    return (multiplier, networth);
+    (multiplier, networth);
   };
   private func getTotalTokenSum(account : RefAccount) : async Nat {
     (await getRefTokenSum(account)) + (await getTierTokenSum(account));
@@ -409,7 +577,7 @@ actor {
       };
       viewArray := Array.append(viewArray, [rowView]);
     };
-    return viewArray;
+    viewArray;
   };
   private func claimReferralToken(code : UUID, token : Token) : async (Bool, Text) {
     let id = switch (await principalByUUID(code)) {
@@ -475,170 +643,9 @@ actor {
       };
     };
   };
-  public func claimTierToken(id : Principal) : async (Bool, Text) {
-    let (tierStatus, tierID) = switch (await getCurrentPlayerTier(id)) {
-      case null { return (false, "Reached all tiers.") };
-      case (?tier) { (tier.status, tier.id) };
-    };
-    if (tierStatus == "complete") {
-      return (false, "Tier already completed");
-    };
-    if (validateFunc.get(tierID)()) {
-      switch (accounts.get(id)) {
-        case null { return (false, "Player not found.") };
-        case (?account) {
-          let tokenAmont = account.tiers[tierID].token.amount;
-          let (minted, result) = await mintTokensStandalone(id, tokenAmont);
-          if (minted) {
-            let updTiers = Array.tabulate<Tier>(
-              Array.size(account.tiers),
-              func(i : Nat) : Tier {
-                if (i == tierID) {
-                  let updTier : Tier = {
-                    id = account.tiers[i].id;
-                    title = account.tiers[i].title;
-                    desc = account.tiers[i].desc;
-                    status = "Complete";
-                    token = account.tiers[i].token;
-                  };
-                  return updTier;
-                } else {
-                  return account.tiers[i];
-                };
-              },
-            );
-            let updAcc : RefAccount = {
-              playerID = account.playerID;
-              refByUUID = account.refByUUID;
-              uuid = account.uuid;
-              alias = account.alias;
-              tiers = updTiers;
-              tokens = account.tokens;
-            };
-            accounts.put(id, updAcc);
-            _accounts := Iter.toArray(accounts.entries());
-            return (true, "Tier complete, token minted" # " " # result);
-          } else {
-            return (false, result);
-          };
-        };
-      };
-    } else { return (false, "Tier not completed yet.") };
-  };
-  public shared ({ caller }) func enrollPlayer(signupCode : ?Text, alias : Text) : async (Bool, Text) {
-    switch (accounts.get(caller)) {
-      case null {
-        let code : Text = switch (signupCode) {
-          case (null) { "" };
-          case (?value) { value };
-        };
-        var id = await principalByUUID(code);
-        switch (id) {
-          case (null) {
-            accounts.put(
-              caller,
-              {
-                playerID = caller;
-                refByUUID = "";
-                uuid = await generateUUID64();
-                tiers = await getAlltiers();
-                alias = alias;
-                tokens = [];
-                netWorth = 0.0;
-                multiplier = 0.0; //not implemented
-              },
-            );
-            _accounts := Iter.toArray(accounts.entries());
-            let textNotfound = "Referral code not provided or code not found";
-            return (true, "Account enrrolled" # ", " # textNotfound);
-          };
-          case (?id) {
-            let (minted, text) = await claimReferralToken(code, signupToken);
-            if (minted) {
-              accounts.put(
-                caller,
-                {
-                  playerID = caller;
-                  refByUUID = if (minted) { code } else { "" };
-                  uuid = await generateUUID64();
-                  alias = alias;
-                  tiers = await getAlltiers();
-                  tokens = [];
-                  netWorth = 0.0;
-                  multiplier = 0.0; //not implemented
-                },
-              );
-              _accounts := Iter.toArray(accounts.entries());
-              return (true, "Account enrrolled" # ", " # text);
-            };
-            return (false, text);
-          };
-        };
-      };
-      case (?_) {
-        return (false, "Error. Account exists.");
-      };
-    };
-  };
-  public func enrollByPrincipal(signupCode : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
-    switch (accounts.get(principal)) {
-      case null {
-        let code : Text = switch (signupCode) {
-          case (null) { "" };
-          case (?value) { value };
-        };
-        var id = await principalByUUID(code);
-        switch (id) {
-          case (null) {
-
-            accounts.put(
-              principal,
-              {
-                playerID = principal;
-                refByUUID = "";
-                uuid = await generateUUID64();
-                alias = alias;
-                tiers = await getAlltiers();
-                tokens = [];
-                netWorth = 0.0;
-                multiplier = 0.0; //not implemented
-              },
-            );
-            _accounts := Iter.toArray(accounts.entries());
-            let textNotfound = "Referral code not provided or code not found";
-            return (true, "Account enrrolled" # ", " # textNotfound);
-          };
-          case (?id) {
-            let (minted, text) = await claimReferralToken(code, signupToken);
-            if (minted) {
-              accounts.put(
-                principal,
-                {
-                  playerID = principal;
-                  refByUUID = if (minted) { code } else { "" };
-                  uuid = await generateUUID64();
-                  alias = alias;
-                  tiers = await getAlltiers();
-                  tokens = [];
-                  netWorth = 0.0;
-                  multiplier = 0.0; //not implemented
-                },
-              );
-              _accounts := Iter.toArray(accounts.entries());
-              return (true, "Account enrrolled" # ", " # text);
-            };
-            return (false, text);
-          };
-        };
-      };
-      case (?_) {
-        return (false, "Error. Account exists.");
-      };
-    };
-  };
   private func signupLinkShare(id : Principal) : async Text {
     let route = "https://cosmicrafts.com/signup_prom/";
-    let err = "https://cosmicrafts.com/signup_prom/account_not_found";
+    let err = "Account not found";
     switch (accounts.get(id)) {
       case (?refAccount) {
         let uuid : Text = refAccount.uuid;
@@ -679,18 +686,6 @@ actor {
     uuid := uuid % 2147483647;
     return Nat.toText(uuid);
   };
-  public func generateRandomPrincipal() : async Principal {
-    let randomBytes = await Random.blob();
-    let randomArray = Blob.toArray(randomBytes);
-    // Truncate or pad to 29 bytes if necessary
-    let truncatedBytes = Array.tabulate<Nat8>(
-      29,
-      func(i : Nat) : Nat8 {
-        if (i < Array.size(randomArray)) randomArray[i] else 0;
-      },
-    );
-    return Principal.fromBlob(Blob.fromArray(truncatedBytes));
-  };
 
   let tokenX : ICRC1Interface = actor ("bkyz2-fmaaa-aaaaa-qaaaq-cai") : ICRC1Interface;
   type ICRC1Interface = actor {
@@ -727,6 +722,6 @@ actor {
       case (#Ok(_tid)) true;
       case (#Err(_e)) false;
     };
-    return (success, tokenXResult);
+    (success, tokenXResult);
   };
 };
