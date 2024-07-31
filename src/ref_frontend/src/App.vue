@@ -63,7 +63,7 @@ export default {
   methods: {
     async fetchReferralView() {
       try {
-        const principal = Principal.fromText("jfbyc-gfwca-yk5x5-athbt-zxzvl-ajrrc-6gmfn-6yk23-fzzlj-tt2yi-kps");
+        const principal = Principal.fromText("zt5py-cwfdk-zsza4-kwl7l-fd4k4-z6vc3-vgkc5-5hbas-fktar-y5o5a-5sw");
         const response = await ref_backend.getRefaccountView(principal);
 
         console.log('Response from backend:', response);
@@ -76,11 +76,11 @@ export default {
 
         this.account = {
           playerID: data.playerID,
-          playerName: data.playerName,
-          multiplier: data.multiplier,
-          netWorth: data.netWorth,
+          playerName: data.playerName,         
           tierTokenSum: data.tierTokenSum,
-          signupTokenSum: data.signupTokenSum
+          signupTokenSum: data.signupTokenSum,
+          multiplier: data.multiplier,
+          netWorth: data.netWorth
         };
         this.topPlayers = data.topPlayers || [];
         this.topWeeklyPosition = data.topPosition || null;
