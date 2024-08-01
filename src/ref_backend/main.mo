@@ -23,9 +23,6 @@ actor {
   type UUID = Text;
   type TierID = Nat;
 
-  type F = () -> Bool;
-  private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
-
   type RefAccount = {
     playerID : Principal;
     refByUUID : UUID;
@@ -34,6 +31,7 @@ actor {
     tiers : [Tier];
     tokens : [Token];
   };
+
   type Tier = {
     id : TierID;
     title : Text;
@@ -41,10 +39,12 @@ actor {
     status : Text;
     token : Token;
   };
+
   type Token = {
     title : Text;
     amount : Nat;
   };
+
   type RefAccountView = {
     playerID : Principal;
     playerName : Text;
@@ -58,15 +58,19 @@ actor {
     tierTokenSum : Nat;
     singupLink : Text;
   };
+
   type TopPLayersView = {
     playerName : Text;
     multiplier : Float;
     netWorth : Nat;
   };
 
+  type F = () -> Bool;
+  private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
+
   private stable var _tiers : [Tier] = [];
-  private stable var _accounts : [(Principal, RefAccount)] = [];
   private stable var _refTokens : [(Principal, [Token])] = [];
+  private stable var _accounts : [(Principal, RefAccount)] = [];
   private var tiers : Buffer.Buffer<Tier> = Buffer.fromArray<Tier>(_tiers);
   private var refTokens : HashMap.HashMap<Principal, [Token]> = HashMap.fromIter(
     Iter.fromArray(_refTokens),
@@ -86,6 +90,7 @@ actor {
     _refTokens := Iter.toArray(refTokens.entries());
     _tiers := Buffer.toArray(tiers);
   };
+
   system func postupgrade() {
     accounts := HashMap.fromIter(
       Iter.fromArray(_accounts),
@@ -154,27 +159,10 @@ actor {
   private func validateTweeterTier() : Bool {
     return true;
   };
+
   validateFunc.add(validateMissionTier);
   validateFunc.add(validateDiscordTier);
   validateFunc.add(validateTweeterTier);
-
-  private func tier_p(playerId : Principal) : ?Tier {
-    let player = accounts.get(playerId);
-    switch (player) {
-      case (null) {
-        return null;
-      };
-      case (?player) {
-        for (tier in player.tiers.vals()) {
-          if (tier.status == "Progress") {
-            return ?tier;
-          };
-        };
-        let size = player.tiers.size();
-        ?player.tiers.get(size - 1);
-      };
-    };
-  };
 
   public query func tier_all() : async [Tier] {
     return Buffer.toArray(tiers);
@@ -196,7 +184,6 @@ actor {
   };
 
   public query func account_view(id : Principal) : async ?RefAccountView {
-
     let account = switch (accounts.get(id)) {
       case null { return null };
       case (?acc) {
@@ -232,7 +219,6 @@ actor {
   };
 
   public func claim_top(id : Principal, day : Nat) : async (Bool, Text) {
-
     let account = switch (accounts.get(id)) {
       case null { return (false, "Account not found") };
       case (?account) { account };
@@ -283,7 +269,6 @@ actor {
   };
 
   public func claim_tier(id : Principal) : async (Bool, Text) {
-
     let (tierStatus, tierID) = switch (tier_p(id)) {
       case null { return (false, "Reached all tiers.") };
       case (?tier) { (tier.status, tier.id) };
@@ -351,9 +336,7 @@ actor {
   };
 
   public shared ({ caller }) func enroll(signupCode : ?Text, alias : Text) : async (Bool, Text) {
-
     switch (accounts.get(caller)) {
-
       case null {
         let code : Text = switch (signupCode) {
           case (null) { "" };
@@ -363,7 +346,6 @@ actor {
         var id = id_from_uuid(code);
 
         switch (id) {
-
           case (null) {
 
             accounts.put(
@@ -423,7 +405,6 @@ actor {
   };
 
   public func enroll_by(uuid : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
-
     switch (accounts.get(principal)) {
       case null {
         let code : Text = switch (uuid) {
@@ -464,6 +445,7 @@ actor {
             );
 
             if (minted) {
+
               accounts.put(
                 principal,
                 {
@@ -477,7 +459,9 @@ actor {
                   multiplier = 0.0; //not implemented
                 },
               );
+
               _accounts := Iter.toArray(accounts.entries());
+
               return (true, "Account enrrolled" # ", " # text);
             };
             return (false, text);
@@ -489,22 +473,35 @@ actor {
   };
 
   public func id_gen() : async Principal {
-
     let randomBytes = await Random.blob();
     let randomArray = Blob.toArray(randomBytes);
-
     let truncatedBytes = Array.tabulate<Nat8>(
       29,
       func(i : Nat) : Nat8 {
         if (i < Array.size(randomArray)) randomArray[i] else 0;
       },
     );
-
     return Principal.fromBlob(Blob.fromArray(truncatedBytes));
   };
 
+  private func tier_p(playerId : Principal) : ?Tier {
+    let player = accounts.get(playerId);
+    switch (player) {
+      case (null) {
+        return null;
+      };
+      case (?player) {
+        for (tier in player.tiers.vals()) {
+          if (tier.status == "Progress") {
+            return ?tier;
+          };
+        };
+        let size = player.tiers.size();
+        ?player.tiers.get(size - 1);
+      };
+    };
+  };
   private func player_rank(id : Principal) : Nat {
-
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(Iter.toArray(accounts.entries()));
     var playersWithTokenSums : [(Principal, Nat)] = [];
 
@@ -541,13 +538,14 @@ actor {
 
     0;
   };
-
   private func top_prize(id : Principal) : (Nat, Text) {
     let topPlayers = top_view(0);
     switch (accounts.get(id)) {
+
       case (null) {
         return (0, "Account not found");
       };
+
       case (?account) {
         for (player in topPlayers.vals()) {
           if (player.playerName == account.alias) {
@@ -563,9 +561,7 @@ actor {
       };
     };
   };
-
   private func tokenomics(account : RefAccount) : (Float, Nat, Nat, Nat) {
-
     var multiplier : Float = 0.0;
     let tierTokenSum : Nat = tier_token_sum(account);
     let signupTokenSum : Nat = ref_token_sum(account);
@@ -586,7 +582,6 @@ actor {
       signupTokenSum,
     );
   };
-
   private func token_amount(multiplier : Float, nTokens : Nat) : Nat {
     let nat64 = Nat64.fromNat(nTokens);
     let int64 = Int64.fromNat64(nat64);
@@ -595,7 +590,6 @@ actor {
     let nat = Int64.toNat64(total);
     return Nat64.toNat(nat);
   };
-
   private func ref_token_sum(account : RefAccount) : Nat {
     return Array.foldLeft<Token, Nat>(
       account.tokens,
@@ -605,7 +599,6 @@ actor {
       },
     );
   };
-
   private func tier_token_sum(account : RefAccount) : Nat {
     return Array.foldLeft<Tier, Nat>(
       account.tiers,
@@ -619,9 +612,7 @@ actor {
       },
     );
   };
-
   private func top_view(page : Nat) : [TopPLayersView] {
-
     var playersWithTokenSums : [(Principal, RefAccount, Nat)] = [];
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(
       Iter.toArray(accounts.entries())
@@ -698,9 +689,7 @@ actor {
 
     viewArray;
   };
-
   private func claim_referral(code : UUID, token : Token) : async (Bool, Text) {
-
     let id = switch (id_from_uuid(code)) {
       case null { return (false, "Code not found") };
       case (?id) { id };
@@ -708,6 +697,7 @@ actor {
 
     switch (accounts.get(id)) {
       case null { return (false, "Player principal not found.") };
+
       case (?account) {
 
         if (account.refByUUID == code) {
@@ -777,7 +767,6 @@ actor {
       };
     };
   };
-
   private func signup_link(id : Principal) : Text {
     let route = "https://cosmicrafts.com/signup_prom/";
     let err = "Account not found";
@@ -789,7 +778,6 @@ actor {
       case null err;
     };
   };
-
   private func id_from_uuid(uuid : UUID) : ?Principal {
     let mappedIter = Iter.filter<(Principal, RefAccount)>(
       Iter.fromArray(_accounts),
@@ -806,7 +794,6 @@ actor {
       case (?(principal, _)) { ?principal };
     };
   };
-
   private func uuid_gen() : async Text {
     var uuid : Nat = 0;
     let randomBytes = await Random.blob();
