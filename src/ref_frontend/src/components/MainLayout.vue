@@ -21,9 +21,7 @@ export default {
 <style scoped>
 .layout {
   background-color: #f8f9fa;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+
 }
 .navbar {
   background-color: #ffffff;
@@ -31,8 +29,7 @@ export default {
   border-bottom: 1px solid #dee2e6;
 }
 .main-content {
-  flex: 1;
-  padding: 2rem;
+
 }
 .footer {
   background-color: #ffffff;
@@ -40,4 +37,5 @@ export default {
   border-top: 1px solid #dee2e6;
   text-align: center;
 }
+
 </style>

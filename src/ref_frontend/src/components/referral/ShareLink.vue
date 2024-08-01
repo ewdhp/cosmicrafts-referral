@@ -1,16 +1,36 @@
 <template>
-  <div class="share-link-card">
-    <h3>Share Link</h3>
-    <div>Share and receive 25 tokens free</div>
-    <button class="share-button">
-      <svg><!-- SVG content here --></svg> Share
-    </button>
-  </div>
+<div class="box"><strong>Link</strong></div>
+    <div class="box">
+       <span class="box">If someone signup you get 5 tokens free</span>
+      <button class="share" @click="copyLink"> {{ buttonText }}</button>
+    </div>
+
 </template>
 
 <script>
 export default {
-  name: "ShareLink"
+  name: "ShareLink",
+  props: {
+    link: String
+  },
+  data() {
+    return {
+      buttonText: "Share"
+    };
+  },
+  methods: {
+    async copyLink() {
+      try {
+        await navigator.clipboard.writeText(this.link);
+        this.buttonText = "Copied!";
+        setTimeout(() => {
+          this.buttonText = "Share";
+        }, 2000); // Reset button text after 2 seconds
+      } catch (err) {
+        console.error("Failed to copy: ", err);
+      }
+    }
+  }
 };
 </script>
 
@@ -22,18 +42,21 @@ export default {
   border-radius: 8px;
   border: 1px solid #dee2e6;
 }
-.share-button {
-  display: flex;
-  align-items: center;
-  margin-top: 1rem;
-  padding: 0.5rem 1rem;
+.box {
+
+  border: 1px solid #ccc;
+}
+.share {
+  margin-left : 10px;
   border: none;
   border-radius: 4px;
   background-color: #007bff;
   color: #ffffff;
   cursor: pointer;
 }
-.share-button svg {
-  margin-right: 0.5rem;
+
+.box {
+ border: 1px solid #ccc;
 }
+
 </style>

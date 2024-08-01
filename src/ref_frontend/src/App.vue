@@ -1,20 +1,40 @@
 <template>
   <MainLayout>
+
     <template v-slot:navbar>
       <Logo />
     </template>
 
+    <div class="">
+
     <div v-if="loading">Loading...</div>
     <div v-else-if="error">{{ error }}</div>
     <div v-else>
-      <Account v-if="account" :account="account" />
-      <TopPlayersGrid v-if="topPlayers.length" :topPlayers="topPlayers" />
-      <TopWeekly 
-      v-if="topWeeklyPosition !== null && topWeeklyPrize !== null" 
-      :position="Number(topWeeklyPosition)" :prize="Number(topWeeklyPrize)" />
-      <ShareLink v-if="signupLink" :link="signupLink" />
-      <Tier v-if="currentTier" :tier="currentTier" @claim-tier="claimTier" />
+
+      <div class="container">
+        <Account v-if="account" :account="account" />
+      </div class="container">
+      
+      <div class="container">
+        <TopPlayersGrid v-if="topPlayers.length" :topPlayers="topPlayers" />
+      </div>
+
+      <div class="container">
+        <TopWeekly v-if="topWeeklyPosition !== null && topWeeklyPrize !== null" 
+        :position="Number(topWeeklyPosition)" :prize="Number(topWeeklyPrize)" />
+      </div>
+      
+      <div class="container">
+        <Tier v-if="currentTier" :key="tierKey" :tier="currentTier" :loading="tierLoading" @claim-tier="claimTier" />
+      </div>
+      
+      <div class="container">
+        <ShareLink v-if="signupLink" :link="signupLink" />
+      </div>    
     </div>
+    </div>
+
+
 
     <template v-slot:footer>
       Cosmicrafts All rights reserved
@@ -23,6 +43,7 @@
 </template>
 
 <script>
+import { ref, nextTick } from 'vue';
 import MainLayout from "./components/MainLayout.vue";
 import Logo from "./components/Logo.vue";
 import Account from "./components/referral/RefAccount.vue";
@@ -45,25 +66,21 @@ export default {
     ShareLink,
     Tier
   },
-  data() {
-    return {
-      account: null,
-      topPlayers: [],
-      topWeeklyPosition: null,
-      topWeeklyPrize: null,
-      signupLink: "",
-      currentTier: null,
-      loading: true,
-      error: null
-    };
-  },
-  async created() {
-    await this.fetchReferralView();
-  },
-  methods: {
-    async fetchReferralView() {
+  setup() {
+    const account = ref(null);
+    const topPlayers = ref([]);
+    const topWeeklyPosition = ref(null);
+    const topWeeklyPrize = ref(null);
+    const signupLink = ref("");
+    const currentTier = ref(null);
+    const loading = ref(true);
+    const error = ref(null);
+    const tierLoading = ref(false);
+    const tierKey = ref(0);
+
+    const fetchReferralView = async () => {
       try {
-        const principal = Principal.fromText("l56r2-mgnj5-s7dh7-2ugm4-jigom-fxflo-5tfhu-wmokt-konnr-2vgjn-7nw");
+        const principal = Principal.fromText("yh6ls-exrky-j3mgn-z5of2-5v6zc-b6hm4-5cpxd-qscmc-f2lzc-pwxz4-z74");
         const response = await ref_backend.account_view(principal);
 
         console.log('Response from backend:', response);
@@ -74,7 +91,7 @@ export default {
 
         const data = response[0];
 
-        this.account = {
+        account.value = {
           playerID: data.playerID,
           playerName: data.playerName,         
           tierTokenSum: data.tierTokenSum,
@@ -82,27 +99,55 @@ export default {
           multiplier: data.multiplier,
           netWorth: data.netWorth
         };
-        this.topPlayers = data.topPlayers || [];
-        this.topWeeklyPosition = data.topPosition || null;
-        this.topWeeklyPrize = data.topTokenAmount ? data.topTokenAmount[0] : null;
-        this.signupLink = data.singupLink || "";
-        this.currentTier = data.currentTier || null;
+        topPlayers.value = data.topPlayers || [];
+        topWeeklyPosition.value = data.topPosition || null;
+        topWeeklyPrize.value = data.topTokenAmount ? data.topTokenAmount[0] : null;
+        signupLink.value = data.singupLink || "";
+        currentTier.value = data.currentTier || null;
       } catch (error) {
         console.error("Failed to fetch referral view data:", error);
-        this.error = error.message;
+        error.value = error.message;
       } finally {
-        this.loading = false;
+        loading.value = false;
       }
-    },
-    async claimTier() {
+    };
+
+    const claimTier = async () => {
+      tierLoading.value = true;
       try {
-        // Implement the call to claimTier() in Motoko
-        console.log("Claiming tier...");
-        // Handle the result of the claimTier call
+        const principal = Principal.fromText("yh6ls-exrky-j3mgn-z5of2-5v6zc-b6hm4-5cpxd-qscmc-f2lzc-pwxz4-z74");
+        const [success, message] = await ref_backend.claim_tier(principal);
+        if (success) {
+          await fetchReferralView(); // Refresh data
+        } else {
+          console.error('Claim tier failed:', message);
+        }
       } catch (error) {
         console.error("Failed to claim tier:", error);
+      } finally {
+        await nextTick();
+        tierLoading.value = false;
+        tierKey.value += 1; 
       }
-    }
+    };
+
+    return {
+      account,
+      topPlayers,
+      topWeeklyPosition,
+      topWeeklyPrize,
+      signupLink,
+      currentTier,
+      loading,
+      error,
+      tierLoading,
+      tierKey,
+      fetchReferralView,
+      claimTier
+    };
+  },
+  async created() {
+    await this.fetchReferralView();
   }
 };
 </script>
@@ -110,6 +155,14 @@ export default {
 <style>
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  padding:0;
+}
+
+.container {
+  margin:10px;
+  padding:10px;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  overflow: hidden;
 }
 </style>

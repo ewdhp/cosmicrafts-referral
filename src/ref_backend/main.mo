@@ -306,7 +306,7 @@ actor {
       };
     };
     let currentTier = switch (tier_p(id)) {
-      case null { return null };
+      case null { tiersCompleted };
       case (?tier) tier;
     };
     let (
@@ -392,6 +392,7 @@ actor {
     };
   };
   public func claim_tier(id : Principal) : async (Bool, Text) {
+
     let (tierStatus, tierID) = switch (tier_p(id)) {
       case null { return (false, "Reached all tiers.") };
       case (?tier) { (tier.status, tier.id) };
@@ -477,14 +478,15 @@ actor {
       case (null) {
         return null;
       };
+
       case (?player) {
         for (tier in player.tiers.vals()) {
           if (tier.status == "Progress") {
             return ?tier;
           };
         };
-        let size = player.tiers.size();
-        ?player.tiers.get(size - 1);
+
+        return null;
       };
     };
   };
