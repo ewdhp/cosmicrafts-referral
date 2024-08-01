@@ -63,7 +63,7 @@ export default {
   methods: {
     async fetchReferralView() {
       try {
-        const principal = Principal.fromText("sghz5-2exzf-67f7e-idmx3-eexzx-veqff-7snaf-vvgad-iezhb-t3g6b-mkc");
+        const principal = Principal.fromText("l56r2-mgnj5-s7dh7-2ugm4-jigom-fxflo-5tfhu-wmokt-konnr-2vgjn-7nw");
         const response = await ref_backend.account_view(principal);
 
         console.log('Response from backend:', response);

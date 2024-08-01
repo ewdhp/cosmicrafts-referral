@@ -12,7 +12,6 @@ import Nat8 "mo:base/Nat8";
 import Buffer "mo:base/Buffer";
 import Float "mo:base/Float";
 import Text "mo:base/Text";
-import Nat32 "mo:base/Nat32";
 import Int64 "mo:base/Int64";
 
 import TypesICRC1 "../icrc1/Types";
@@ -31,7 +30,6 @@ actor {
     tiers : [Tier];
     tokens : [Token];
   };
-
   type Tier = {
     id : TierID;
     title : Text;
@@ -39,46 +37,50 @@ actor {
     status : Text;
     token : Token;
   };
-
   type Token = {
     title : Text;
     amount : Nat;
   };
-
-  type RefAccountView = {
+  type RefAccView = {
     playerID : Principal;
     playerName : Text;
     currentTier : Tier;
     multiplier : Float;
     netWorth : Nat;
-    topPlayers : [TopPLayersView];
+    topPlayers : [TopView];
     topPosition : Nat;
     topTokenAmount : (Nat, Text);
     signupTokenSum : Nat;
     tierTokenSum : Nat;
     singupLink : Text;
   };
-
-  type TopPLayersView = {
+  type TopView = {
     playerName : Text;
     multiplier : Float;
     netWorth : Nat;
   };
 
   type F = () -> Bool;
-  private var validateFunc : Buffer.Buffer<F> = Buffer.Buffer<F>(0);
+  type BufferF = Buffer.Buffer<F>;
+  private var validateFunc : BufferF = Buffer.Buffer<F>(0);
 
   private stable var _tiers : [Tier] = [];
   private stable var _refTokens : [(Principal, [Token])] = [];
   private stable var _accounts : [(Principal, RefAccount)] = [];
-  private var tiers : Buffer.Buffer<Tier> = Buffer.fromArray<Tier>(_tiers);
-  private var refTokens : HashMap.HashMap<Principal, [Token]> = HashMap.fromIter(
+
+  type Buffer = Buffer.Buffer<Tier>;
+  private var tiers : Buffer = Buffer.fromArray<Tier>(_tiers);
+
+  type HashMapRef = HashMap.HashMap<Principal, [Token]>;
+  type HashMapAcc = HashMap.HashMap<Principal, RefAccount>;
+
+  private var refTokens : HashMapRef = HashMap.fromIter(
     Iter.fromArray(_refTokens),
     0,
     Principal.equal,
     Principal.hash,
   );
-  private var accounts : HashMap.HashMap<Principal, RefAccount> = HashMap.fromIter(
+  private var accounts : HashMapAcc = HashMap.fromIter(
     Iter.fromArray(_accounts),
     0,
     Principal.equal,
@@ -90,7 +92,6 @@ actor {
     _refTokens := Iter.toArray(refTokens.entries());
     _tiers := Buffer.toArray(tiers);
   };
-
   system func postupgrade() {
     accounts := HashMap.fromIter(
       Iter.fromArray(_accounts),
@@ -164,176 +165,6 @@ actor {
   validateFunc.add(validateDiscordTier);
   validateFunc.add(validateTweeterTier);
 
-  public query func tier_all() : async [Tier] {
-    return Buffer.toArray(tiers);
-  };
-
-  public query func account_by(id : Principal) : async ?RefAccount {
-    return accounts.get(id);
-  };
-
-  public query ({ caller }) func account() : async ?RefAccount {
-    return accounts.get(caller);
-  };
-
-  public query func account_all() : async [(Text, Principal)] {
-    let account = Iter.toArray(accounts.vals());
-    let buffer = Buffer.Buffer<(Text, Principal)>(account.size());
-    for (acc in account.vals()) buffer.add(acc.alias, acc.playerID);
-    return Buffer.toArray(buffer);
-  };
-
-  public query func account_view(id : Principal) : async ?RefAccountView {
-    let account = switch (accounts.get(id)) {
-      case null { return null };
-      case (?acc) {
-        acc;
-      };
-    };
-    let currentTier = switch (tier_p(id)) {
-      case null { return null };
-      case (?tier) tier;
-    };
-    let (
-      multiplier,
-      networth,
-      tierTokenSum,
-      signupTokenSum,
-    ) = tokenomics(account);
-
-    let pageTop10 = 0;
-
-    return ?({
-      playerID = id;
-      playerName = account.alias;
-      currentTier = currentTier;
-      multiplier = multiplier;
-      netWorth = networth;
-      tierTokenSum = tierTokenSum;
-      signupTokenSum = signupTokenSum;
-      topPlayers = top_view(pageTop10);
-      topPosition = player_rank(id);
-      topTokenAmount = top_prize(id);
-      singupLink = signup_link(id);
-    });
-  };
-
-  public func claim_top(id : Principal, day : Nat) : async (Bool, Text) {
-    let account = switch (accounts.get(id)) {
-      case null { return (false, "Account not found") };
-      case (?account) { account };
-    };
-
-    if (day == 1) {
-
-      let (tokenAmount, _) = top_prize(id);
-
-      if (tokenAmount > 0) {
-
-        let (multiplier, _, _, _) = tokenomics(account);
-        let total = token_amount(multiplier, tokenAmount);
-        let (minted, _) = await mint(id, total);
-
-        if (minted) {
-
-          let token : Token = {
-            title = "Weekly Top Player Token";
-            amount = total;
-          };
-          let updatedTokens = Array.append(
-            account.tokens,
-            [token],
-          );
-          let updatedAccount : RefAccount = {
-            playerID = account.playerID;
-            refByUUID = account.refByUUID;
-            uuid = account.uuid;
-            alias = account.alias;
-            tiers = account.tiers;
-            tokens = updatedTokens;
-          };
-
-          accounts.put(id, updatedAccount);
-          _accounts := Iter.toArray(accounts.entries());
-
-          return (true, "Weekly top player token claimed: ");
-        } else {
-          return (false, "Error minting weekly top player token");
-        };
-      } else {
-        return (false, "Player not in top 10.");
-      };
-    } else {
-      return (false, "Only on moday's may be claimed");
-    };
-  };
-
-  public func claim_tier(id : Principal) : async (Bool, Text) {
-    let (tierStatus, tierID) = switch (tier_p(id)) {
-      case null { return (false, "Reached all tiers.") };
-      case (?tier) { (tier.status, tier.id) };
-    };
-
-    if (tierStatus == "No more tiers") { return (false, "No more tiers") };
-    if (tierStatus == "complete") { return (false, "Tier already completed") };
-
-    if (validateFunc.get(tierID)()) {
-      switch (accounts.get(id)) {
-        case null {
-          return (false, "Player not found.");
-        };
-
-        case (?account) {
-
-          let tokenAmount = account.tiers[tierID].token.amount;
-          let (multiplier, _, _, _) = tokenomics(account);
-          let total = token_amount(multiplier, tokenAmount);
-
-          let (minted, result) = await mint(id, total);
-
-          if (minted) {
-            let updTiers = Array.tabulate<Tier>(
-              Array.size(account.tiers),
-              func(i : Nat) : Tier {
-                if (i == tierID) {
-                  let updTier : Tier = {
-                    id = account.tiers[i].id;
-                    title = account.tiers[i].title;
-                    desc = account.tiers[i].desc;
-                    status = "Complete";
-                    token = {
-                      title = account.tiers[i].token.title;
-                      amount = total;
-                    };
-                  };
-                  return updTier;
-                } else {
-                  return account.tiers[i];
-                };
-              },
-            );
-
-            let updAcc : RefAccount = {
-              playerID = account.playerID;
-              refByUUID = account.refByUUID;
-              uuid = account.uuid;
-              alias = account.alias;
-              tiers = updTiers;
-              tokens = account.tokens;
-            };
-
-            accounts.put(id, updAcc);
-            _accounts := Iter.toArray(accounts.entries());
-
-            return (true, "Tier complete, token minted");
-          } else {
-            return (false, result);
-          };
-        };
-      };
-    } else { return (false, "Tier not completed yet.") };
-  };
-
   public shared ({ caller }) func enroll(signupCode : ?Text, alias : Text) : async (Bool, Text) {
     switch (accounts.get(caller)) {
       case null {
@@ -400,7 +231,6 @@ actor {
       case (?_) { return (false, "Error. Account exists.") };
     };
   };
-
   public func enroll_by(uuid : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
     switch (accounts.get(principal)) {
       case null {
@@ -468,7 +298,167 @@ actor {
       case (?_) { (false, "Error. Account exists.") };
     };
   };
+  public query func account_view(id : Principal) : async ?RefAccView {
+    let account = switch (accounts.get(id)) {
+      case null { return null };
+      case (?acc) {
+        acc;
+      };
+    };
+    let currentTier = switch (tier_p(id)) {
+      case null { return null };
+      case (?tier) tier;
+    };
+    let (
+      multiplier,
+      networth,
+      tierTokenSum,
+      signupTokenSum,
+    ) = tokenomics(account);
 
+    let pageTop10 = 0;
+
+    return ?({
+      playerID = id;
+      playerName = account.alias;
+      currentTier = currentTier;
+      multiplier = multiplier;
+      netWorth = networth;
+      tierTokenSum = tierTokenSum;
+      signupTokenSum = signupTokenSum;
+      topPlayers = top_view(pageTop10);
+      topPosition = player_rank(id);
+      topTokenAmount = top_prize(id);
+      singupLink = signup_link(id);
+    });
+  };
+  public query func account_by(id : Principal) : async ?RefAccount {
+    return accounts.get(id);
+  };
+  public query ({ caller }) func account() : async ?RefAccount {
+    return accounts.get(caller);
+  };
+  public query func account_all() : async [(Text, Principal)] {
+    let account = Iter.toArray(accounts.vals());
+    let buffer = Buffer.Buffer<(Text, Principal)>(account.size());
+    for (acc in account.vals()) buffer.add(acc.alias, acc.playerID);
+    return Buffer.toArray(buffer);
+  };
+  public func claim_top(id : Principal, day : Nat) : async (Bool, Text) {
+    let account = switch (accounts.get(id)) {
+      case null { return (false, "Account not found") };
+      case (?account) { account };
+    };
+    if (day == 1) {
+
+      let (tokenAmount, _) = top_prize(id);
+      if (tokenAmount > 0) {
+
+        let (multiplier, _, _, _) = tokenomics(account);
+        let total = token_amount(multiplier, tokenAmount);
+        let (minted, _) = await mint(id, total);
+
+        if (minted) {
+
+          let token : Token = {
+            title = "Weekly Top Player Token";
+            amount = total;
+          };
+          let updatedTokens = Array.append(
+            account.tokens,
+            [token],
+          );
+          let updatedAccount : RefAccount = {
+            playerID = account.playerID;
+            refByUUID = account.refByUUID;
+            uuid = account.uuid;
+            alias = account.alias;
+            tiers = account.tiers;
+            tokens = updatedTokens;
+          };
+
+          accounts.put(id, updatedAccount);
+          _accounts := Iter.toArray(accounts.entries());
+
+          return (true, "Weekly top player token claimed: ");
+        } else {
+          return (false, "Error minting weekly top player token");
+        };
+      } else {
+        return (false, "Player not in top 10.");
+      };
+    } else {
+      return (false, "Only on moday's may be claimed");
+    };
+  };
+  public func claim_tier(id : Principal) : async (Bool, Text) {
+    let (tierStatus, tierID) = switch (tier_p(id)) {
+      case null { return (false, "Reached all tiers.") };
+      case (?tier) { (tier.status, tier.id) };
+    };
+
+    if (tierStatus == "No more tiers") { return (false, "No more tiers") };
+    if (tierStatus == "complete") { return (false, "Tier already completed") };
+
+    if (validateFunc.get(tierID)()) {
+      switch (accounts.get(id)) {
+        case null {
+          return (false, "Player not found.");
+        };
+
+        case (?account) {
+
+          let tokenAmount = account.tiers[tierID].token.amount;
+          let (multiplier, _, _, _) = tokenomics(account);
+          let total = token_amount(multiplier, tokenAmount);
+
+          let (minted, result) = await mint(id, total);
+
+          if (minted) {
+            let updTiers = Array.tabulate<Tier>(
+              Array.size(account.tiers),
+              func(i : Nat) : Tier {
+                if (i == tierID) {
+                  let updTier : Tier = {
+                    id = account.tiers[i].id;
+                    title = account.tiers[i].title;
+                    desc = account.tiers[i].desc;
+                    status = "Complete";
+                    token = {
+                      title = account.tiers[i].token.title;
+                      amount = total;
+                    };
+                  };
+                  return updTier;
+                } else {
+                  return account.tiers[i];
+                };
+              },
+            );
+
+            let updAcc : RefAccount = {
+              playerID = account.playerID;
+              refByUUID = account.refByUUID;
+              uuid = account.uuid;
+              alias = account.alias;
+              tiers = updTiers;
+              tokens = account.tokens;
+            };
+
+            accounts.put(id, updAcc);
+            _accounts := Iter.toArray(accounts.entries());
+
+            return (true, "Tier complete, token minted");
+          } else {
+            return (false, result);
+          };
+        };
+      };
+    } else { return (false, "Tier not completed yet.") };
+  };
+  public query func tier_all() : async [Tier] {
+    return Buffer.toArray(tiers);
+  };
   public func id_gen() : async Principal {
     let randomBytes = await Random.blob();
     let randomArray = Blob.toArray(randomBytes);
@@ -538,13 +528,11 @@ actor {
   private func top_prize(id : Principal) : (Nat, Text) {
     let topPlayers = top_view(0);
     switch (accounts.get(id)) {
-
       case (null) {
         return (0, "Account not found");
       };
 
       case (?account) {
-
         for (player in topPlayers.vals()) {
           if (player.playerName == account.alias) {
             for (token in account.tokens.vals()) {
@@ -552,7 +540,10 @@ actor {
                 return (token.amount, "Tokens claimed");
               };
             };
-            return (10, "You are in, waiting for monday.");
+            let prizeAmount = 10;
+            let (multiplier, _, _, _) = tokenomics(account);
+            let total = token_amount(multiplier, prizeAmount);
+            return (total, "You are in, waiting for monday.");
           };
         };
 
@@ -560,10 +551,10 @@ actor {
       };
     };
   };
-  private func tokenomics(account : RefAccount) : (Float, Nat, Nat, Nat) {
+  private func tokenomics(acc : RefAccount) : (Float, Nat, Nat, Nat) {
     var multiplier : Float = 0.0;
-    let tierTokenSum : Nat = tier_token_sum(account);
-    let signupTokenSum : Nat = ref_token_sum(account);
+    let tierTokenSum : Nat = tier_token_sum(acc);
+    let signupTokenSum : Nat = ref_token_sum(acc);
     let networth : Nat = tierTokenSum + signupTokenSum;
 
     if (networth <= 10) {
@@ -611,7 +602,7 @@ actor {
       },
     );
   };
-  private func top_view(page : Nat) : [TopPLayersView] {
+  private func top_view(page : Nat) : [TopView] {
     var playersWithTokenSums : [(Principal, RefAccount, Nat)] = [];
     let playersArray = Buffer.fromArray<(Principal, RefAccount)>(
       Iter.toArray(accounts.entries())
@@ -674,11 +665,11 @@ actor {
       )
     );
 
-    var viewArray : [TopPLayersView] = [];
+    var viewArray : [TopView] = [];
 
     for ((_, refAccount, _) in paginated.vals()) {
       let (m, n, _, _) = tokenomics(refAccount);
-      let rowView : TopPLayersView = {
+      let rowView : TopView = {
         playerName = refAccount.alias;
         multiplier = m;
         netWorth = n;
