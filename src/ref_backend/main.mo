@@ -173,9 +173,7 @@ actor {
           case (?value) { value };
         };
 
-        var id = id_from_uuid(code);
-
-        switch (id) {
+        switch (id_from_uuid(code)) {
           case (null) {
 
             accounts.put(
@@ -198,7 +196,7 @@ actor {
             return (true, "Account enrrolled" # ", " # textNotfound);
           };
 
-          case (?id) {
+          case (?_) {
 
             let (minted, text) = await claim_referral(
               code,
@@ -217,11 +215,12 @@ actor {
                   tiers = await tier_all();
                   tokens = [];
                   netWorth = 0.0;
-                  multiplier = 0.0; //not implemented
+                  multiplier = 0.0;
                 },
               );
 
               _accounts := Iter.toArray(accounts.entries());
+
               return (true, "Account enrrolled" # ", " # text);
             };
             return (false, text);
@@ -272,7 +271,6 @@ actor {
             );
 
             if (minted) {
-
               accounts.put(
                 principal,
                 {
@@ -286,11 +284,10 @@ actor {
                   multiplier = 0.0; //not implemented
                 },
               );
-
               _accounts := Iter.toArray(accounts.entries());
-
               return (true, "Account enrrolled" # ", " # text);
             };
+
             return (false, text);
           };
         };
@@ -301,9 +298,7 @@ actor {
   public query func account_view(id : Principal) : async ?RefAccView {
     let account = switch (accounts.get(id)) {
       case null { return null };
-      case (?acc) {
-        acc;
-      };
+      case (?acc) { acc };
     };
     let currentTier = switch (tier_p(id)) {
       case null { tiersCompleted };
@@ -349,8 +344,8 @@ actor {
       case null { return (false, "Account not found") };
       case (?account) { account };
     };
-    if (day == 1) {
 
+    if (day == 1) {
       let (tokenAmount, _) = top_prize(id);
       if (tokenAmount > 0) {
 
@@ -359,7 +354,6 @@ actor {
         let (minted, _) = await mint(id, total);
 
         if (minted) {
-
           let token : Token = {
             title = "Weekly Top Player Token";
             amount = total;
@@ -403,16 +397,13 @@ actor {
 
     if (validateFunc.get(tierID)()) {
       switch (accounts.get(id)) {
-        case null {
-          return (false, "Player not found.");
-        };
+        case null { return (false, "Player not found.") };
 
         case (?account) {
 
           let tokenAmount = account.tiers[tierID].token.amount;
           let (multiplier, _, _, _) = tokenomics(account);
           let total = token_amount(multiplier, tokenAmount);
-
           let (minted, result) = await mint(id, total);
 
           if (minted) {
@@ -475,9 +466,7 @@ actor {
   private func tier_p(playerId : Principal) : ?Tier {
     let player = accounts.get(playerId);
     switch (player) {
-      case (null) {
-        return null;
-      };
+      case (null) { return null };
 
       case (?player) {
         for (tier in player.tiers.vals()) {
@@ -530,9 +519,7 @@ actor {
   private func top_prize(id : Principal) : (Nat, Text) {
     let topPlayers = top_view(0);
     switch (accounts.get(id)) {
-      case (null) {
-        return (0, "Account not found");
-      };
+      case (null) { return (0, "Account not found") };
 
       case (?account) {
         for (player in topPlayers.vals()) {
@@ -689,7 +676,6 @@ actor {
 
     switch (accounts.get(id)) {
       case null { return (false, "Player principal not found.") };
-
       case (?account) {
 
         if (account.refByUUID == code) {

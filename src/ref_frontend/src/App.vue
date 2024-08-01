@@ -80,7 +80,7 @@ export default {
 
     const fetchReferralView = async () => {
       try {
-        const principal = Principal.fromText("z4lsz-feens-irdl4-vxaru-djecf-nuw52-bhbdt-x3lno-o24pd-tyep3-eus");
+        const principal = Principal.fromText("darru-6cu4a-6o3vx-zlz2j-5ebz3-j7hbx-3jj2x-qzmad-ecnv2-harwa-dbq");
         const response = await ref_backend.account_view(principal);
 
         console.log('Response from backend:', response);
@@ -108,14 +108,14 @@ export default {
         console.error("Failed to fetch referral view data:", error);
         error.value = error.message;
       } finally {
-        loading.value = false;
+        
       }
     };
 
     const claimTier = async () => {
       tierLoading.value = true;
       try {
-        const principal = Principal.fromText("z4lsz-feens-irdl4-vxaru-djecf-nuw52-bhbdt-x3lno-o24pd-tyep3-eus");
+        const principal = Principal.fromText("darru-6cu4a-6o3vx-zlz2j-5ebz3-j7hbx-3jj2x-qzmad-ecnv2-harwa-dbq");
         const [success, message] = await ref_backend.claim_tier(principal);
         if (success) {
           await fetchReferralView(); // Refresh data
@@ -147,7 +147,9 @@ export default {
     };
   },
   async created() {
+    this.loading = true;
     await this.fetchReferralView();
+     this.loading = false;
   }
 };
 </script>
