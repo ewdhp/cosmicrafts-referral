@@ -1,9 +1,9 @@
 <template>
-
-    <div class="box"><strong>Rank</strong></div>
-    <div class="box"><strong>Position:</strong> {{ position }}</div>
-    <div class="box"><strong>Prize:</strong> {{ prize }}</div>
-
+  <div class="box">
+    <div class=""><strong>Rank</strong></div>
+    <div class=""><strong>Position:</strong> {{ position }}</div>
+    <div class=""><strong>Prize:</strong> {{ prize }}</div>
+</div>
 </template>
 
 <script>

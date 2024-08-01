@@ -80,7 +80,7 @@ export default {
 
     const fetchReferralView = async () => {
       try {
-        const principal = Principal.fromText("yh6ls-exrky-j3mgn-z5of2-5v6zc-b6hm4-5cpxd-qscmc-f2lzc-pwxz4-z74");
+        const principal = Principal.fromText("z4lsz-feens-irdl4-vxaru-djecf-nuw52-bhbdt-x3lno-o24pd-tyep3-eus");
         const response = await ref_backend.account_view(principal);
 
         console.log('Response from backend:', response);
@@ -115,7 +115,7 @@ export default {
     const claimTier = async () => {
       tierLoading.value = true;
       try {
-        const principal = Principal.fromText("yh6ls-exrky-j3mgn-z5of2-5v6zc-b6hm4-5cpxd-qscmc-f2lzc-pwxz4-z74");
+        const principal = Principal.fromText("z4lsz-feens-irdl4-vxaru-djecf-nuw52-bhbdt-x3lno-o24pd-tyep3-eus");
         const [success, message] = await ref_backend.claim_tier(principal);
         if (success) {
           await fetchReferralView(); // Refresh data

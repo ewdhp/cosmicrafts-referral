@@ -30,7 +30,7 @@ export default {
   },
   computed: {
     sortedPlayers() {
-      return this.topPlayers.slice().sort((a, b) => b.netWorth - a.netWorth);
+      return this.topPlayers;
     }
   }
 };

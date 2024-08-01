@@ -1,10 +1,11 @@
 <template>
-<div class="box"><strong>Link</strong></div>
-    <div class="box">
-       <span class="box">If someone signup you get 5 tokens free</span>
+  <div class="box">
+<div class=""><strong>Link</strong></div>
+    <div >
+       <span >If someone signup you get 5 tokens free</span>
       <button class="share" @click="copyLink"> {{ buttonText }}</button>
     </div>
-
+</div>
 </template>
 
 <script>
