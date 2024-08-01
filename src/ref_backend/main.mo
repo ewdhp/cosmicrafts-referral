@@ -278,7 +278,6 @@ actor {
     if (tierStatus == "complete") { return (false, "Tier already completed") };
 
     if (validateFunc.get(tierID)()) {
-
       switch (accounts.get(id)) {
         case null {
           return (false, "Player not found.");
@@ -376,6 +375,7 @@ actor {
             );
 
             if (minted) {
+
               accounts.put(
                 caller,
                 {
@@ -393,14 +393,11 @@ actor {
               _accounts := Iter.toArray(accounts.entries());
               return (true, "Account enrrolled" # ", " # text);
             };
-
             return (false, text);
           };
         };
       };
-
       case (?_) { return (false, "Error. Account exists.") };
-
     };
   };
 
@@ -547,6 +544,7 @@ actor {
       };
 
       case (?account) {
+
         for (player in topPlayers.vals()) {
           if (player.playerName == account.alias) {
             for (token in account.tokens.vals()) {
@@ -557,6 +555,7 @@ actor {
             return (10, "You are in, waiting for monday.");
           };
         };
+
         return (0, "Not clasified");
       };
     };
@@ -711,11 +710,13 @@ actor {
         };
 
         if (size > 0) {
+
           let (multiplier, _, _, _) = tokenomics(account);
           let total = token_amount(multiplier, signupToken.amount);
           let (minted, result) = await mint(id, total);
 
           if (minted) {
+
             let updAcc : RefAccount = {
               playerID = account.playerID;
               refByUUID = account.refByUUID;
