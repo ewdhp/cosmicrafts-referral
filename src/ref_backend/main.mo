@@ -13,6 +13,7 @@ import Buffer "mo:base/Buffer";
 import Float "mo:base/Float";
 import Text "mo:base/Text";
 import Int64 "mo:base/Int64";
+import Timer "mo:base/Timer";
 
 import TypesICRC1 "../icrc1/Types";
 import Utils "Utils";
@@ -788,6 +789,170 @@ actor {
     };
     uuid := uuid % 2147483647;
     return Nat.toText(uuid);
+  };
+
+  //Matches
+
+  type RPlayer = {
+    id : Principal;
+    name : Text;
+    balance : Float;
+  };
+
+  type Status = {
+    #waiting;
+    #progress;
+    #complete;
+  };
+
+  type RMatch = {
+    id : Text;
+    name : Text;
+    player1 : Principal;
+    player2 : ?Principal;
+    fee : Float;
+    entry : Float;
+    price : Float;
+    status : Status;
+    winner : ?Principal;
+    date : Time.Time;
+  };
+
+  stable var _matches : [RMatch] = [];
+  var matchesBuffer : Buffer.Buffer<RMatch> = Buffer.Buffer<RMatch>(0);
+
+  public func createMatch(player1 : RPlayer, entry : Float) : async RMatch {
+
+    let matchId = await uuid_gen();
+    let fee = entry * 2.0 * 0.1;
+    let price = (entry * 2) - fee;
+
+    let newMatch : RMatch = {
+      id = matchId;
+      name = player1.name;
+      player1 = player1.id;
+      player2 = null;
+      fee = fee;
+      entry = entry;
+      price = price;
+      status = #waiting;
+      winner = null;
+      date = Time.now();
+    };
+
+    matchesBuffer.add(newMatch);
+    _matches := Array.append(_matches, [newMatch]);
+
+    let duration : Timer.Duration = #seconds(3600);
+    let _ = Timer.setTimer<system>(
+      duration,
+      func() : async () {
+
+        matchesBuffer.filterEntries(
+          func(_ : Nat, m : RMatch) : Bool {
+            m.id != matchId;
+          }
+        );
+
+        _matches := Array.foldLeft(
+          _matches,
+          [],
+          func(acc : [RMatch], m : RMatch) : [RMatch] {
+            if (m.id != matchId) {
+              Array.append(acc, [m]);
+            } else {
+              acc;
+            };
+          },
+        );
+      },
+    );
+    return newMatch;
+  };
+
+  public func joinMatch(player2 : RPlayer, matchId : Text) : async ?RMatch {
+
+    let maybeMatch = await findMatchById(matchId);
+
+    switch maybeMatch {
+      case null { return null };
+
+      case (?match) {
+        if (match.status == #waiting) {
+          let updatedMatch = {
+            match with
+            player2 = ?player2.id;
+            status = #progress;
+          };
+          updateMatchInBufferAndStable(updatedMatch);
+          return ?updatedMatch;
+        } else {
+          return null;
+        };
+      };
+    };
+  };
+
+  public func completeMatch(matchId : Text, winner : Principal) : async ?RMatch {
+
+    let maybeMatch = await findMatchById(matchId);
+
+    switch maybeMatch {
+      case null { return null };
+
+      case (?match) {
+        if (match.status == #progress) {
+
+          let updatedMatch = {
+            match with
+            winner = ?winner;
+            status = #complete;
+          };
+
+          updateMatchInBufferAndStable(updatedMatch);
+          // Grant the prize to the winner and commission to the host
+          _matches := Array.append(_matches, [updatedMatch]);
+
+          return ?updatedMatch;
+        } else {
+          return null;
+        };
+      };
+    };
+  };
+
+  public func findMatchById(matchId : Text) : async ?RMatch {
+    for (match in Iter.fromArray(Buffer.toArray(matchesBuffer))) {
+      if (match.id == matchId) {
+        return ?match;
+      };
+    };
+    return null;
+  };
+
+  public func grantPrize(match : RMatch) : async ?Principal {
+    return switch (match.winner) {
+      case null { return null };
+      case (winner) { winner };
+    };
+  };
+  private func updateMatchInBufferAndStable(updatedMatch : RMatch) {
+    for (i in Iter.range(0, matchesBuffer.size() - 1)) {
+      if (matchesBuffer.get(i).id == updatedMatch.id) {
+        matchesBuffer.put(i, updatedMatch);
+      };
+    };
+    _matches := Array.foldLeft(
+      _matches,
+      [],
+      func(acc : [RMatch], m : RMatch) : [RMatch] {
+        if (m.id == updatedMatch.id) {
+          Array.append(acc, [updatedMatch]);
+        } else {
+          Array.append(acc, [m]);
+        };
+      },
+    );
   };
 
   let tokenX : ICRC1Interface = actor ("bkyz2-fmaaa-aaaaa-qaaaq-cai") : ICRC1Interface;
