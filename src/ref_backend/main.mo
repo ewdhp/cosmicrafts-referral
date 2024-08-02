@@ -791,7 +791,11 @@ actor {
     return Nat.toText(uuid);
   };
 
-  //Matches
+  //////////////////////////////////////////////////////////////////
+  // 
+  //   1 v 1 Matches with virtual token tier rewards
+  //
+
 
   type RPlayer = {
     id : Principal;
@@ -869,7 +873,6 @@ actor {
     );
     return newMatch;
   };
-
   public func joinMatch(player2 : RPlayer, matchId : Text) : async ?RMatch {
 
     let maybeMatch = await findMatchById(matchId);
@@ -892,7 +895,6 @@ actor {
       };
     };
   };
-
   public func completeMatch(matchId : Text, winner : Principal) : async ?RMatch {
 
     let maybeMatch = await findMatchById(matchId);
@@ -920,7 +922,6 @@ actor {
       };
     };
   };
-
   public func findMatchById(matchId : Text) : async ?RMatch {
     for (match in Iter.fromArray(Buffer.toArray(matchesBuffer))) {
       if (match.id == matchId) {
@@ -929,7 +930,6 @@ actor {
     };
     return null;
   };
-
   public func grantPrize(match : RMatch) : async ?Principal {
     return switch (match.winner) {
       case null { return null };
