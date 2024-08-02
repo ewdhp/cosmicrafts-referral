@@ -105,6 +105,7 @@ actor {
       Principal.hash,
     );
     _refTokens := [];
+    _accounts := [];
   };
 
   public shared ({ caller }) func ref_enroll(signupCode : ?Text, alias : Text) : async (Bool, Text) {
@@ -125,7 +126,7 @@ actor {
                 playerID = caller;
                 refByUUID = "";
                 uuid = await ref_uuid_gen();
-                tiers = await ref_tier_all();
+                tiers = ref_tier_all_p();
                 alias = alias;
                 tokens = [];
                 netWorth = 0.0;
@@ -156,7 +157,7 @@ actor {
                   refByUUID = if (minted) { code } else { "" };
                   uuid = await ref_uuid_gen();
                   alias = alias;
-                  tiers = await ref_tier_all();
+                  tiers = ref_tier_all_p();
                   tokens = [{
                     title = "Referral Signup token";
                     amount = 5;
@@ -165,8 +166,8 @@ actor {
                   multiplier = 0.0;
                 },
               );
-             _accounts := Iter.toArray(accounts.entries());
-             return (true, "Account enrrolled" # ", " # text);
+              _accounts := Iter.toArray(accounts.entries());
+              return (true, "Account enrrolled" # ", " # text);
             };
 
             return (false, text);
@@ -179,7 +180,7 @@ actor {
   };
   public func ref_enroll_by(uuid : ?Text, principal : Principal, alias : Text) : async (Bool, Text) {
 
-    switch (accounts.get(principal)) {     
+    switch (accounts.get(principal)) {
       case null {
         let code : Text = switch (uuid) {
           case (null) { "" };
@@ -198,7 +199,7 @@ actor {
                 refByUUID = "";
                 uuid = await ref_uuid_gen();
                 alias = alias;
-                tiers = await ref_tier_all();
+                tiers = ref_tier_all_p();
                 tokens = [];
                 netWorth = 0.0;
                 multiplier = 0.0; //not implemented
@@ -227,7 +228,7 @@ actor {
                   refByUUID = if (minted) { code } else { "" };
                   uuid = await ref_uuid_gen();
                   alias = alias;
-                  tiers = await ref_tier_all();
+                  tiers = ref_tier_all_p();
                   tokens = [{
                     title = "Referral Signup token";
                     amount = 5;
@@ -364,62 +365,79 @@ actor {
     if (tierStatus == "No more tiers") { return (false, "No more tiers") };
     if (tierStatus == "complete") { return (false, "Tier already completed") };
 
-    if (validate_func.get(tierID)()) {
+    switch (accounts.get(id)) {
+      case null { return (false, "Player not found.") };
 
-      switch (accounts.get(id)) {
-        case null { return (false, "Player not found.") };
+      case (?account) {
 
-        case (?account) {
+        let tokenAmount = account.tiers[tierID].token.amount;
+        let (multiplier, _, _, _) = ref_tokenomics(account);
+        let total = ref_token_amount(multiplier, tokenAmount);
+        let (minted, result) = await mint(id, total);
 
-          let tokenAmount = account.tiers[tierID].token.amount;
-          let (multiplier, _, _, _) = ref_tokenomics(account);
-          let total = ref_token_amount(multiplier, tokenAmount);
-          let (minted, result) = await mint(id, total);
+        if (minted) {
 
-          if (minted) {
-
-            let updTiers = Array.tabulate<Tier>(
-              Array.size(account.tiers),
-              func(i : Nat) : Tier {
-                if (i == tierID) {
-                  let updTier : Tier = {
-                    id = account.tiers[i].id;
-                    title = account.tiers[i].title;
-                    desc = account.tiers[i].desc;
-                    status = "Complete";
-                    token = {
-                      title = account.tiers[i].token.title;
-                      amount = total;
-                    };
+          let updTiers = Array.tabulate<Tier>(
+            Array.size(account.tiers),
+            func(i : Nat) : Tier {
+              if (i == tierID) {
+                let updTier : Tier = {
+                  id = account.tiers[i].id;
+                  title = account.tiers[i].title;
+                  desc = account.tiers[i].desc;
+                  status = "Complete";
+                  token = {
+                    title = account.tiers[i].token.title;
+                    amount = total;
                   };
-                  return updTier;
-                } else {
-                  return account.tiers[i];
                 };
-              },
-            );
+                return updTier;
+              } else {
+                return account.tiers[i];
+              };
+            },
+          );
 
-            let updAcc : RefAccount = {
-              playerID = account.playerID;
-              refByUUID = account.refByUUID;
-              uuid = account.uuid;
-              alias = account.alias;
-              tiers = updTiers;
-              tokens = account.tokens;
-            };
-
-            accounts.put(id, updAcc);
-            _accounts := Iter.toArray(accounts.entries());
-
-            return (true, "Tier complete, token minted");
-          } else {
-            return (false, result);
+          let updAcc : RefAccount = {
+            playerID = account.playerID;
+            refByUUID = account.refByUUID;
+            uuid = account.uuid;
+            alias = account.alias;
+            tiers = updTiers;
+            tokens = account.tokens;
           };
+
+          accounts.put(id, updAcc);
+          _accounts := Iter.toArray(accounts.entries());
+
+          return (true, "Tier complete, token minted");
+        } else {
+          return (false, result);
         };
       };
-    } else { return (false, "Tier not completed yet.") };
+    };
   };
-  public query func ref_tier_all() : async [Tier] {
+
+  public func ref_id_gen() : async Principal {
+
+    let randomBytes = await Random.blob();
+    let randomArray = Blob.toArray(randomBytes);
+
+    let truncatedBytes = Array.tabulate<Nat8>(
+      29,
+      func(i : Nat) : Nat8 {
+        if (i < Array.size(randomArray)) {
+          randomArray[i];
+        } else 0;
+      },
+    );
+
+    return Principal.fromBlob(
+      Blob.fromArray(truncatedBytes)
+    );
+  };
+
+  private func ref_tier_all_p() : [Tier] {
 
     if (tiers.size() == 0) {
 
@@ -463,34 +481,14 @@ actor {
 
     return Buffer.toArray(tiers);
   };
-  public func ref_id_gen() : async Principal {
-
-    let randomBytes = await Random.blob();
-    let randomArray = Blob.toArray(randomBytes);
-
-    let truncatedBytes = Array.tabulate<Nat8>(
-      29,
-      func(i : Nat) : Nat8 {
-        if (i < Array.size(randomArray)) {
-          randomArray[i];
-        } else 0;
-      },
-    );
-
-    return Principal.fromBlob(
-      Blob.fromArray(truncatedBytes)
-    );
-  };
-
   private func ref_tier_p(playerId : Principal) : ?Tier {
-
     let player = accounts.get(playerId);
-
     switch (player) {
       case (null) { return null };
-
       case (?player) {
-        for (tier in player.tiers.vals()) {
+        for (
+          tier in player.tiers.vals()
+        ) {
           if (tier.status == "Progress") {
             return ?tier;
           };
@@ -736,7 +734,7 @@ actor {
         };
 
         if (size > 0) {
-          
+
           let (multiplier, _, _, _) = ref_tokenomics(account);
           let total = ref_token_amount(multiplier, signupToken.amount);
           let (minted, result) = await mint(id, total);
