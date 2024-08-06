@@ -61,25 +61,11 @@ actor {
     netWorth : Nat;
   };
 
-  type F = () -> Bool;
-  type BufferF = Buffer.Buffer<F>;
-  private var validate_func : BufferF = Buffer.Buffer<F>(0);
-
-  private stable var _refTokens : [(Principal, [Token])] = [];
-  private stable var _accounts : [(Principal, RefAccount)] = [];
-
   type Buffer = Buffer.Buffer<Tier>;
   private var tiers : Buffer = Buffer.Buffer<Tier>(0);
 
-  type HashMapRef = HashMap.HashMap<Principal, [Token]>;
   type HashMapAcc = HashMap.HashMap<Principal, RefAccount>;
-
-  private var refTokens : HashMapRef = HashMap.fromIter(
-    Iter.fromArray(_refTokens),
-    0,
-    Principal.equal,
-    Principal.hash,
-  );
+  private stable var _accounts : [(Principal, RefAccount)] = [];
   private var accounts : HashMapAcc = HashMap.fromIter(
     Iter.fromArray(_accounts),
     0,
@@ -89,7 +75,6 @@ actor {
 
   system func preupgrade() {
     _accounts := Iter.toArray(accounts.entries());
-    _refTokens := Iter.toArray(refTokens.entries());
   };
   system func postupgrade() {
     accounts := HashMap.fromIter(
@@ -98,13 +83,6 @@ actor {
       Principal.equal,
       Principal.hash,
     );
-    refTokens := HashMap.fromIter(
-      Iter.fromArray(_refTokens),
-      0,
-      Principal.equal,
-      Principal.hash,
-    );
-    _refTokens := [];
     _accounts := [];
   };
 
@@ -417,7 +395,6 @@ actor {
       };
     };
   };
-
   public func ref_id_gen() : async Principal {
 
     let randomBytes = await Random.blob();
@@ -748,13 +725,11 @@ actor {
               alias = account.alias;
               tiers = account.tiers;
               tokens = Array.append(
-                Iter.toArray(refTokens.vals())[0],
+                account.tokens,
                 [{ title = token.title; amount = total }],
               );
             };
 
-            refTokens.put(account.playerID, updAcc.tokens);
-            _refTokens := Iter.toArray(refTokens.entries());
             accounts.put(account.playerID, updAcc);
             _accounts := Iter.toArray(accounts.entries());
 
@@ -780,8 +755,6 @@ actor {
               tokens = [{ title = token.title; amount = total }];
             };
 
-            refTokens.put(account.playerID, updAcc.tokens);
-            _refTokens := Iter.toArray(refTokens.entries());
             accounts.put(account.playerID, updAcc);
             _accounts := Iter.toArray(accounts.entries());
 
@@ -837,176 +810,6 @@ actor {
     };
     uuid := uuid % 2147483647;
     return Nat.toText(uuid);
-  };
-
-  //////////////////////////////////////////////////////////////////
-  //
-  //   1 v 1 Matches with virtual token tier rewards
-  //
-
-  type RPlayer = {
-    id : Principal;
-    name : Text;
-    balance : Float;
-  };
-
-  type Status = {
-    #waiting;
-    #progress;
-    #complete;
-  };
-
-  type RMatch = {
-    id : Text;
-    name : Text;
-    player1 : Principal;
-    player2 : ?Principal;
-    fee : Float;
-    entry : Float;
-    price : Float;
-    status : Status;
-    winner : ?Principal;
-    date : Time.Time;
-  };
-
-  stable var _matches : [RMatch] = [];
-  var matchesBuffer : Buffer.Buffer<RMatch> = Buffer.Buffer<RMatch>(0);
-
-  public func ref_create_match(player1 : RPlayer, entry : Float) : async RMatch {
-
-    let matchId = await ref_uuid_gen();
-    let fee = entry * 2.0 * 0.1;
-    let price = (entry * 2) - fee;
-
-    let newMatch : RMatch = {
-      id = matchId;
-      name = player1.name;
-      player1 = player1.id;
-      player2 = null;
-      fee = fee;
-      entry = entry;
-      price = price;
-      status = #waiting;
-      winner = null;
-      date = Time.now();
-    };
-
-    matchesBuffer.add(newMatch);
-    _matches := Array.append(_matches, [newMatch]);
-
-    let duration : Timer.Duration = #seconds(3600);
-
-    let _ = Timer.setTimer<system>(
-      duration,
-      func() : async () {
-        matchesBuffer.filterEntries(
-          func(_ : Nat, m : RMatch) : Bool {
-            m.id != matchId;
-          }
-        );
-        _matches := Array.foldLeft(
-          _matches,
-          [],
-          func(acc : [RMatch], m : RMatch) : [RMatch] {
-            if (m.id != matchId) {
-              Array.append(acc, [m]);
-            } else {
-              acc;
-            };
-          },
-        );
-      },
-    );
-
-    return newMatch;
-  };
-  public func ref_join_match(player2 : RPlayer, matchId : Text) : async ?RMatch {
-
-    let maybeMatch = await ref_find_match(matchId);
-
-    switch maybeMatch {
-      case null { return null };
-
-      case (?match) {
-        if (match.status == #waiting) {
-          let updatedMatch = {
-            match with
-            player2 = ?player2.id;
-            status = #progress;
-          };
-          ref_update_match(updatedMatch);
-          return ?updatedMatch;
-        } else {
-
-          return null;
-
-        };
-      };
-    };
-  };
-  public func ref_complete_match(matchId : Text, winner : Principal) : async ?RMatch {
-
-    let maybeMatch = await ref_find_match(matchId);
-
-    switch maybeMatch {
-      case null { return null };
-
-      case (?match) {
-
-        if (match.status == #progress) {
-
-          let updatedMatch = {
-            match with
-            winner = ?winner;
-            status = #complete;
-          };
-
-          ref_update_match(updatedMatch);
-          // Grant the prize to the winner and commission to the host
-          _matches := Array.append(_matches, [updatedMatch]);
-
-          return ?updatedMatch;
-        } else {
-          return null;
-        };
-      };
-    };
-  };
-  public func ref_find_match(matchId : Text) : async ?RMatch {
-    for (match in Iter.fromArray(Buffer.toArray(matchesBuffer))) {
-      if (match.id == matchId) {
-        return ?match;
-      };
-    };
-    return null;
-  };
-  public func ref_grant_prize(match : RMatch) : async ?Principal {
-    return switch (match.winner) {
-      case null { return null };
-      case (winner) { winner };
-    };
-  };
-  private func ref_update_match(updatedMatch : RMatch) {
-
-    for (i in Iter.range(0, matchesBuffer.size() - 1)) {
-      if (matchesBuffer.get(i).id == updatedMatch.id) {
-        matchesBuffer.put(i, updatedMatch);
-      };
-    };
-
-    _matches := Array.foldLeft(
-      _matches,
-      [],
-      func(acc : [RMatch], m : RMatch) : [RMatch] {
-        if (m.id == updatedMatch.id) {
-          Array.append(acc, [updatedMatch]);
-        } else {
-          Array.append(acc, [m]);
-        };
-      },
-    );
-
-    ();
   };
 
   let tokenX : ICRC1Interface = actor ("bkyz2-fmaaa-aaaaa-qaaaq-cai") : ICRC1Interface;
